@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SimpleChat</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- AUTH SCREEN -->
+  <section id="auth-screen" class="screen">
+    <div class="auth-card">
+      <h1>SimpleChat</h1>
+      <p class="muted">Sign in or create an account</p>
+      <input id="auth-name" type="text" placeholder="Name (signup only)" />
+      <input id="auth-email" type="email" placeholder="Email" />
+      <input id="auth-password" type="password" placeholder="Password" />
+      <div class="row">
+        <button id="btn-login">Login</button>
+        <button id="btn-signup" class="secondary">Sign up</button>
+      </div>
+      <p id="auth-error" class="error"></p>
+    </div>
+  </section>
+
+  <!-- CHAT LIST SCREEN -->
+  <section id="list-screen" class="screen hidden">
+    <header class="topbar">
+      <div>
+        <h2>Chats</h2>
+        <small id="me-label" class="muted"></small>
+      </div>
+      <div class="actions">
+        <button id="btn-new-chat" class="icon">＋</button>
+        <button id="btn-logout" class="icon">⎋</button>
+      </div>
+    </header>
+    <ul id="conversation-list" class="list"></ul>
+  </section>
+
+  <!-- CHAT ROOM SCREEN -->
+  <section id="chat-screen" class="screen hidden">
+    <header class="topbar">
+      <button id="btn-back" class="icon">←</button>
+      <div class="peer">
+        <strong id="peer-name">User</strong>
+        <small id="peer-status" class="muted">offline</small>
+      </div>
+    </header>
+    <div id="messages" class="messages"></div>
+    <form id="send-form" class="composer">
+      <input id="message-input" type="text" placeholder="Type a message" autocomplete="off" />
+      <button type="submit">Send</button>
+    </form>
+  </section>
+
+  <!-- NEW CHAT MODAL -->
+  <div id="new-chat-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3>Start new chat</h3>
+      <input id="new-chat-email" type="email" placeholder="User email" />
+      <div class="row">
+        <button id="btn-start-chat">Start</button>
+        <button id="btn-cancel-chat" class="secondary">Cancel</button>
+      </div>
+      <p id="new-chat-error" class="error"></p>
+    </div>
+  </div>
+
+  <!-- PROFILE MODAL -->
+  <div id="profile-modal" class="modal hidden">
+    <div class="modal-card profile-card">
+      <div id="profile-avatar" class="avatar profile-avatar">?</div>
+      <h3 id="profile-name">Name</h3>
+      <p id="profile-email" class="muted"></p>
+      <p id="profile-status" class="muted"></p>
+      <div class="row">
+        <button id="btn-profile-message">Message</button>
+        <button id="btn-profile-close" class="secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
