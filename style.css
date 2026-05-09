@@ -34,6 +34,7 @@ html, body {
   max-width: 720px;
   margin: 0 auto;
   background: var(--surface);
+  overflow: hidden;  /* ← add this line */
 }
 
 /* AUTH */
@@ -238,3 +239,59 @@ button.icon:hover { background: var(--surface-2); }
 }
 .list li .conv-meta .name span:first-child { cursor: pointer; }
 .list li .avatar { cursor: pointer; }
+/* SCROLLBAR */
+.messages, .list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface-2) transparent;
+}
+
+/* EMPTY STATE */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--muted);
+  padding: 40px 20px;
+  text-align: center;
+}
+.empty-state p {
+  margin: 0;
+  font-size: 15px;
+}
+
+/* LOADING SKELETON */
+.skeleton {
+  background: var(--surface-2);
+  border-radius: 6px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* TRANSITIONS */
+.bubble {
+  transition: transform 0.1s ease-out;
+}
+.modal {
+  animation: fadeIn 0.15s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* FOCUS STATES */
+input:focus-visible, button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* DISABLED BUTTON */
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
