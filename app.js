@@ -25,7 +25,7 @@ let inboxChannel = null;           // realtime channel for new conversations / m
 let typingTimeoutLocal = null;     // debounce for "I'm typing" broadcasts
 let typingHideTimeout = null;      // auto-hide peer typing indicator
 let isTypingSent = false;          // last sent state to avoid spamming the channel
-
+let inboxDebounce = null;
 // =====================================================
 // AUTH
 // =====================================================
@@ -138,7 +138,10 @@ async function loadConversations() {
     .eq("user_id", currentUser.id);
 
   const ids = (parts || []).map((p) => p.conversation_id);
-  if (ids.length === 0) return;
+if (ids.length === 0) {
+  list.innerHTML = `<li class="empty-state"><p>No chats yet.<br>Tap ＋ to start one.</p></li>`;
+  return;
+}
 
   // For each conversation, find the OTHER participant + last message.
   const { data: convs } = await supabase
@@ -235,6 +238,13 @@ function subscribeInbox() {
       }
     )
     .subscribe();
+    .subscribe((status) => {
+  if (status === 'SUBSCRIBED') {
+    console.log('Connected to chat');
+  } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+    console.warn('Realtime disconnected, retrying...');
+  }
+});
 }
 
 // =====================================================
@@ -334,50 +344,42 @@ async function openChat(conv) {
     .on("postgres_changes",
       { event: "INSERT", schema: "public", table: "messages",
         filter: `conversation_id=eq.${conv.id}` },
-      (payload) => {
-        appendMessage(payload.new);
-        scrollToBottom();
-      }
-    )
-    .on("broadcast", { event: "typing" }, (payload) => {
-      // Ignore our own typing events.
-      if (!payload.payload || payload.payload.user_id === currentUser.id) return;
-      if (payload.payload.typing) showTyping();
-      else hideTyping();
-    })
-    .subscribe();
+   (payload) => {
+  // Debounce list reload
+  clearTimeout(inboxDebounce);
+  inboxDebounce = setTimeout(loadConversations, 300);
+
+  // Browser notification if it's not from me and not the open chat.
+  if (
+    payload.new.sender_id !== currentUser.id &&
+    (!activeConversation || activeConversation.id !== payload.new.conversation_id)
+  ) {
+    notify("New message", payload.new.content);
+  }
 }
 
 $("send-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const input = $("message-input");
+  const btn = $("btn-send");
   const content = input.value.trim();
   if (!content || !activeConversation) return;
   input.value = "";
-  // Sending a message implicitly stops typing.
   sendTyping(false);
-  const { error } = await supabase.from("messages").insert({
-    conversation_id: activeConversation.id,
-    sender_id: currentUser.id,
-    content,
-  });
-  if (error) {
-    alert("Failed to send: " + error.message);
-    input.value = content;
-  }
-});
-
-// Broadcast typing state on input. Sends "typing=true" once, then auto-resets
-// to false after 2s of inactivity.
-$("message-input").addEventListener("input", () => {
-  if (!activeConversation) return;
-  const hasText = $("message-input").value.trim().length > 0;
-  if (hasText) {
-    if (!isTypingSent) sendTyping(true);
-    clearTimeout(typingTimeoutLocal);
-    typingTimeoutLocal = setTimeout(() => sendTyping(false), 2000);
-  } else {
-    sendTyping(false);
+  btn.disabled = true;
+  try {
+    const { error } = await supabase.from("messages").insert({
+      conversation_id: activeConversation.id,
+      sender_id: currentUser.id,
+      content,
+    });
+    if (error) {
+      alert("Failed to send: " + error.message);
+      input.value = content;
+    }
+  } finally {
+    btn.disabled = false;
+    input.focus();
   }
 });
 
@@ -399,7 +401,7 @@ function showTyping() {
     el.className = "typing";
     el.innerHTML = "<span></span><span></span><span></span>";
     $("messages").appendChild(el);
-    scrollToBottom();
+scrollToBottom(true);
   }
   // Safety: hide after 4s if no further events arrive.
   clearTimeout(typingHideTimeout);
@@ -418,12 +420,14 @@ function appendMessage(m) {
   div.innerHTML = `${escapeHtml(m.content)}<span class="ts">${formatTime(m.created_at)}</span>`;
   $("messages").appendChild(div);
 }
-
-function scrollToBottom() {
+function scrollToBottom(force = false) {
   const el = $("messages");
-  el.scrollTop = el.scrollHeight;
+  const threshold = 100; // px from bottom
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  if (force || nearBottom) {
+    el.scrollTop = el.scrollHeight;
+  }
 }
-
 // =====================================================
 // HELPERS
 // =====================================================
