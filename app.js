@@ -4,7 +4,7 @@
 // 2) Run the SQL from README.md in Supabase to create tables.
 // =====================================================
 
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
 const SUPABASE_URL = "https://rfvixnyqlgcjlohissva.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_07G3VDgwos4Dm7HHfoZJlQ_8G6tFxyw";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -26,6 +26,7 @@ let typingTimeoutLocal = null;     // debounce for "I'm typing" broadcasts
 let typingHideTimeout = null;      // auto-hide peer typing indicator
 let isTypingSent = false;          // last sent state to avoid spamming the channel
 let inboxDebounce = null;
+
 // =====================================================
 // AUTH
 // =====================================================
@@ -138,10 +139,10 @@ async function loadConversations() {
     .eq("user_id", currentUser.id);
 
   const ids = (parts || []).map((p) => p.conversation_id);
-if (ids.length === 0) {
-  list.innerHTML = `<li class="empty-state"><p>No chats yet.<br>Tap ＋ to start one.</p></li>`;
-  return;
-}
+  if (ids.length === 0) {
+    list.innerHTML = `<li class="empty-state"><p>No chats yet.<br>Tap ＋ to start one.</p></li>`;
+    return;
+  }
 
   // For each conversation, find the OTHER participant + last message.
   const { data: convs } = await supabase
@@ -224,9 +225,8 @@ function subscribeInbox() {
     .on("postgres_changes",
       { event: "INSERT", schema: "public", table: "messages" },
       (payload) => {
-        // Only refresh if the message belongs to a conversation we're in.
-        // Cheap approach: just reload list.
-        loadConversations();
+        clearTimeout(inboxDebounce);
+        inboxDebounce = setTimeout(loadConversations, 300);
 
         // Browser notification if it's not from me and not the open chat.
         if (
@@ -237,14 +237,13 @@ function subscribeInbox() {
         }
       }
     )
-    .subscribe();
     .subscribe((status) => {
-  if (status === 'SUBSCRIBED') {
-    console.log('Connected to chat');
-  } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-    console.warn('Realtime disconnected, retrying...');
-  }
-});
+      if (status === 'SUBSCRIBED') {
+        console.log('Connected to chat');
+      } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        console.warn('Realtime disconnected, retrying...');
+      }
+    });
 }
 
 // =====================================================
@@ -344,18 +343,17 @@ async function openChat(conv) {
     .on("postgres_changes",
       { event: "INSERT", schema: "public", table: "messages",
         filter: `conversation_id=eq.${conv.id}` },
-   (payload) => {
-  // Debounce list reload
-  clearTimeout(inboxDebounce);
-  inboxDebounce = setTimeout(loadConversations, 300);
-
-  // Browser notification if it's not from me and not the open chat.
-  if (
-    payload.new.sender_id !== currentUser.id &&
-    (!activeConversation || activeConversation.id !== payload.new.conversation_id)
-  ) {
-    notify("New message", payload.new.content);
-  }
+      (payload) => {
+        appendMessage(payload.new);
+        scrollToBottom();
+      }
+    )
+    .on("broadcast", { event: "typing" }, (payload) => {
+      if (!payload.payload || payload.payload.user_id === currentUser.id) return;
+      if (payload.payload.typing) showTyping();
+      else hideTyping();
+    })
+    .subscribe();
 }
 
 $("send-form").addEventListener("submit", async (e) => {
@@ -383,6 +381,18 @@ $("send-form").addEventListener("submit", async (e) => {
   }
 });
 
+$("message-input").addEventListener("input", () => {
+  if (!activeConversation) return;
+  const hasText = $("message-input").value.trim().length > 0;
+  if (hasText) {
+    if (!isTypingSent) sendTyping(true);
+    clearTimeout(typingTimeoutLocal);
+    typingTimeoutLocal = setTimeout(() => sendTyping(false), 2000);
+  } else {
+    sendTyping(false);
+  }
+});
+
 function sendTyping(typing) {
   if (!messageChannel) return;
   isTypingSent = typing;
@@ -401,7 +411,7 @@ function showTyping() {
     el.className = "typing";
     el.innerHTML = "<span></span><span></span><span></span>";
     $("messages").appendChild(el);
-scrollToBottom(true);
+    scrollToBottom(true);
   }
   // Safety: hide after 4s if no further events arrive.
   clearTimeout(typingHideTimeout);
@@ -420,6 +430,7 @@ function appendMessage(m) {
   div.innerHTML = `${escapeHtml(m.content)}<span class="ts">${formatTime(m.created_at)}</span>`;
   $("messages").appendChild(div);
 }
+
 function scrollToBottom(force = false) {
   const el = $("messages");
   const threshold = 100; // px from bottom
@@ -428,6 +439,7 @@ function scrollToBottom(force = false) {
     el.scrollTop = el.scrollHeight;
   }
 }
+
 // =====================================================
 // HELPERS
 // =====================================================
