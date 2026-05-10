@@ -115,6 +115,9 @@ async function onLoggedIn() {
   const { data: profile } = await supabase.from("users").select("*").eq("id", user.id).single();
   currentUser = profile || { id: user.id, email: user.email, name: user.email };
   $("me-label").textContent = currentUser.name + " — " + currentUser.email;
+  $("me-label").addEventListener("click", function() {
+  openProfile(currentUser, null);
+});
   hide("auth-screen");
   show("list-screen");
   await loadConversations();
