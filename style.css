@@ -40,7 +40,6 @@
   margin: 0;
   padding: 0;
 }
-
 html, body {
   height: 100%;
   width: 100%;
@@ -85,6 +84,7 @@ html, body {
   flex-direction: column;
   height: 100dvh;
   height: 100vh;
+  width: 100%;
   max-width: 480px;
   margin: 0 auto;
   background: var(--bg-secondary);
@@ -783,14 +783,42 @@ html, body {
 @media (max-width: 480px) {
   .screen {
     max-width: 100%;
+    width: 100vw;
     border: none;
+    border-radius: 0;
   }
   .bubble {
-    max-width: 85%;
+    max-width: 82%;
   }
   .msg-image, .msg-video {
-    max-width: 200px;
-    max-height: 200px;
+    max-width: 180px;
+    max-height: 180px;
+  }
+  .composer {
+    padding: 6px 8px;
+    gap: 4px;
+  }
+  .input-wrapper input {
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+  .topbar {
+    padding: 10px 12px;
+    min-height: 50px;
+  }
+  .topbar h2 {
+    font-size: 16px;
+  }
+  .modal-card {
+    margin: 12px;
+    padding: 18px;
+    max-width: 100%;
+  }
+  .auth-card {
+    padding: 16px;
+  }
+  .messages {
+    padding: 8px 6px;
   }
 }
 @media (min-width: 768px) {
@@ -801,4 +829,11 @@ html, body {
     max-width: 70%;
   }
 }
+}
+/* SAFE AREA FOR NOTCHED PHONES */
+.composer {
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+.topbar {
+  padding-top: max(10px, env(safe-area-inset-top));
 }
