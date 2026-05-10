@@ -6,11 +6,6 @@
   <title>SimpleChat</title>
   <link rel="stylesheet" href="style.css" />
 </head>
-  <!-- IMAGE ZOOM MODAL -->
-<div id="image-zoom-modal" class="modal hidden" style="background: rgba(0,0,0,0.9); z-index: 20;">
-  <span id="btn-close-zoom" style="position: absolute; top: 20px; right: 20px; color: white; font-size: 30px; cursor: pointer;">✕</span>
-  <img id="zoom-image" src="" style="max-width: 90%; max-height: 90%; border-radius: 4px;" />
-</div>
 <body>
   <!-- AUTH SCREEN -->
   <section id="auth-screen" class="screen">
@@ -30,17 +25,17 @@
 
   <!-- CHAT LIST SCREEN -->
   <section id="list-screen" class="screen hidden">
-     <header class="topbar">
-  <div>
-    <h2>Chats</h2>
-    <small id="me-label" class="muted" style="cursor: pointer; text-decoration: underline;">My Profile</small>
-  </div>
-  <div class="actions">
-    <button id="btn-users" class="icon">👥</button>
-    <button id="btn-new-chat" class="icon">＋</button>
-    <button id="btn-logout" class="icon">⎋</button>
-  </div>
-</header> 
+    <header class="topbar">
+      <div>
+        <h2>Chats</h2>
+        <small id="me-label" class="muted" style="cursor: pointer; text-decoration: underline;">My Profile</small>
+      </div>
+      <div class="actions">
+        <button id="btn-users" class="icon">👥</button>
+        <button id="btn-new-chat" class="icon">＋</button>
+        <button id="btn-logout" class="icon">⎋</button>
+      </div>
+    </header>
     <ul id="conversation-list" class="list"></ul>
   </section>
 
@@ -54,10 +49,10 @@
       </div>
     </header>
     <div id="messages" class="messages"></div>
-   <form id="send-form" class="composer">
-  <input id="message-input" type="text" placeholder="Type a message" autocomplete="off" />
-  <button type="submit" id="btn-send">Send</button>
-</form>
+    <form id="send-form" class="composer">
+      <input id="message-input" type="text" placeholder="Type a message" autocomplete="off" />
+      <button type="submit" id="btn-send">Send</button>
+    </form>
   </section>
 
   <!-- NEW CHAT MODAL -->
@@ -76,9 +71,9 @@
   <!-- PROFILE MODAL -->
   <div id="profile-modal" class="modal hidden">
     <div class="modal-card profile-card">
-   <div id="profile-avatar" class="avatar profile-avatar" style="cursor: pointer;">?
-  <input type="file" id="avatar-upload" accept="image/*" style="display: none;" />
-</div>
+      <div id="profile-avatar" class="avatar profile-avatar" style="cursor: pointer;">?
+        <input type="file" id="avatar-upload" accept="image/*" style="display: none;" />
+      </div>
       <h3 id="profile-name">Name</h3>
       <p id="profile-email" class="muted"></p>
       <p id="profile-status" class="muted"></p>
@@ -88,6 +83,7 @@
       </div>
     </div>
   </div>
+
   <!-- USERS MODAL -->
   <div id="users-modal" class="modal hidden">
     <div class="modal-card">
@@ -98,6 +94,13 @@
       </div>
     </div>
   </div>
-<script type="module" src="app.js"></script>
+
+  <!-- IMAGE ZOOM MODAL -->
+  <div id="image-zoom-modal" class="modal hidden" style="background: rgba(0,0,0,0.9); z-index: 20;">
+    <span id="btn-close-zoom" style="position: absolute; top: 20px; right: 20px; color: white; font-size: 30px; cursor: pointer;">✕</span>
+    <img id="zoom-image" src="" style="max-width: 90%; max-height: 90%; border-radius: 4px;" />
+  </div>
+
+  <script type="module" src="app.js"></script>
 </body>
 </html>
