@@ -799,14 +799,6 @@ html, body {
     max-width: 180px;
     max-height: 180px;
   }
-  .composer {
-    padding: 6px 8px;
-    gap: 4px;
-  }
-  .input-wrapper input {
-    padding: 10px 14px;
-    font-size: 14px;
-  }
   .topbar {
     padding: 10px 12px;
     min-height: 50px;
@@ -822,11 +814,6 @@ html, body {
   .auth-card {
     padding: 16px;
   }
-  .messages {
-    padding: 8px 6px;
-  }
-}
-@media (max-width: 480px) {
   .composer {
     padding: 6px 6px;
     gap: 3px;
@@ -848,6 +835,7 @@ html, body {
     gap: 2px;
   }
 }
+
 @media (min-width: 768px) {
   .messages {
     padding: 16px 20px;
@@ -856,7 +844,7 @@ html, body {
     max-width: 70%;
   }
 }
-}
+
 /* SAFE AREA FOR NOTCHED PHONES */
 .composer {
   padding-bottom: max(8px, env(safe-area-inset-bottom));
