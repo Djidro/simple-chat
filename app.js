@@ -971,16 +971,54 @@ if (profileModal) {
     });
   }
 });
-// KEYBOARD HANDLING FOR MOBILE
-var originalHeight = window.innerHeight;
-window.addEventListener("resize", function() {
-  var newHeight = window.innerHeight;
-  if (newHeight < originalHeight - 100) {
-    // Keyboard open
-    scrollToBottom(true);
+// =====================================================
+// MOBILE KEYBOARD FIX
+// =====================================================
+(function() {
+  var isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent);
+  if (!isMobile) return;
+
+  var chatScreen = document.getElementById("chat-screen");
+  var messagesEl = document.getElementById("messages");
+  var inputEl = document.getElementById("message-input");
+  var composerEl = document.getElementById("send-form");
+
+  if (!chatScreen || !messagesEl || !inputEl) return;
+
+  // Set fixed height based on viewport
+  function setScreenHeight() {
+    var vh = window.innerHeight;
+    chatScreen.style.height = vh + "px";
+    messagesEl.style.height = (vh - 110) + "px";
   }
-  originalHeight = newHeight;
-});
+
+  setScreenHeight();
+
+  inputEl.addEventListener("focus", function() {
+    setTimeout(function() {
+      var vh = window.innerHeight;
+      chatScreen.style.height = vh + "px";
+      messagesEl.style.height = (vh - 110) + "px";
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      window.scrollTo(0, 0);
+      document.body.scrollTop = 0;
+    }, 300);
+  });
+
+  inputEl.addEventListener("blur", function() {
+    setTimeout(function() {
+      setScreenHeight();
+      window.scrollTo(0, 0);
+    }, 200);
+  });
+
+  // Prevent page scroll on mobile
+  document.body.addEventListener("touchmove", function(e) {
+    if (e.target.closest(".messages") || e.target.closest(".list")) {
+      return;
+    }
+  }, { passive: true });
+})();
 // =====================================================
 // HELPERS
 // =====================================================
