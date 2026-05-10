@@ -22,6 +22,7 @@ let inboxChannel = null;
 let typingTimeoutLocal = null;
 let typingHideTimeout = null;
 let isTypingSent = false;
+let editingMessageId = null;
 
 // ---------- Media state ----------
 let mediaRecorder = null;
@@ -79,13 +80,23 @@ $("btn-logout").addEventListener("click", async () => {
 });
 
 async function ensureProfile(authUser, fallbackName) {
-  const name = authUser.user_metadata ? authUser.user_metadata.name : (fallbackName || authUser.email.split("@")[0]);
-  await supabase.from("users").upsert({
+  var name = fallbackName || "";
+  if (authUser.user_metadata && authUser.user_metadata.name) {
+    name = authUser.user_metadata.name;
+  } else if (!name && authUser.email) {
+    name = authUser.email.split("@")[0];
+  }
+  
+  var result = await supabase.from("users").upsert({
     id: authUser.id,
     email: authUser.email,
     name: name,
     last_seen: new Date().toISOString(),
-  });
+  }, { onConflict: 'id' });
+  
+  if (result.error) {
+    console.error("Profile error:", result.error);
+  }
 }
 
 async function updateLastSeen() {
@@ -160,7 +171,7 @@ async function loadConversations() {
     const row = convs[i];
     const { data: lastMsg } = await supabase
       .from("messages")
-      .select("content, created_at")
+      .select("content, created_at, sender_id, seen")
       .eq("conversation_id", row.conversation_id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -174,6 +185,7 @@ async function loadConversations() {
       if (lastMsg.content.startsWith("[image]")) lastText = "📷 Image";
       else if (lastMsg.content.startsWith("[video]")) lastText = "🎬 Video";
       else if (lastMsg.content.startsWith("[audio]")) lastText = "🎵 Voice note";
+      else if (lastMsg.content.startsWith("[deleted]")) lastText = "🗑 Message deleted";
       else lastText = lastMsg.content;
     }
     
@@ -438,6 +450,10 @@ async function openChat(conv) {
   $("messages").innerHTML = "";
   hide("list-screen");
   show("chat-screen");
+  
+  showSendButton(false);
+  $("message-input").value = "";
+  editingMessageId = null;
 
   const { data: msgs } = await supabase
     .from("messages")
@@ -451,6 +467,9 @@ async function openChat(conv) {
     }
   }
   scrollToBottom();
+  
+  // Mark messages as seen
+  markMessagesAsSeen(conv.id);
 
   if (messageChannel) supabase.removeChannel(messageChannel);
   messageChannel = supabase
@@ -460,6 +479,15 @@ async function openChat(conv) {
       function(payload) {
         appendMessage(payload.new);
         scrollToBottom();
+        if (payload.new.sender_id !== currentUser.id) {
+          markMessagesAsSeen(conv.id);
+        }
+      }
+    )
+    .on("postgres_changes",
+      { event: "UPDATE", schema: "public", table: "messages", filter: "conversation_id=eq." + conv.id },
+      function(payload) {
+        updateMessageInUI(payload.new);
       }
     )
     .on("broadcast", { event: "typing" }, function(payload) {
@@ -469,6 +497,69 @@ async function openChat(conv) {
     })
     .subscribe();
 }
+
+async function markMessagesAsSeen(convId) {
+  await supabase
+    .from("messages")
+    .update({ seen: true })
+    .eq("conversation_id", convId)
+    .neq("sender_id", currentUser.id)
+    .eq("seen", false);
+}
+
+function updateMessageInUI(newMsg) {
+  var messages = $("messages").children;
+  for (var i = 0; i < messages.length; i++) {
+    var bubble = messages[i];
+    if (bubble.dataset && bubble.dataset.msgId == newMsg.id) {
+      var content = newMsg.content || "";
+      if (content.startsWith("[deleted]")) {
+        bubble.innerHTML = '<em style="color: var(--muted);">🗑 Message deleted</em>' +
+          '<span class="ts">' + formatTime(newMsg.created_at) + '</span>';
+        bubble.classList.add("deleted");
+      } else {
+        bubble.querySelector(".bubble-text").textContent = content;
+      }
+      var seenCheck = bubble.querySelector(".seen-check");
+     var seenCheck = bubble.querySelector(".seen-check");
+if (seenCheck && newMsg.seen) {
+        seenCheck.textContent = "✓✓";
+        seenCheck.style.color = "var(--primary)";
+      }
+      break;
+    }
+  }
+}
+
+// Delete message
+$("messages").addEventListener("click", async function(e) {
+  var target = e.target;
+  
+  // Handle delete button
+  if (target.classList.contains("btn-delete-msg")) {
+    var msgId = target.dataset.msgId;
+    if (confirm("Delete this message?")) {
+      await supabase
+        .from("messages")
+        .update({ content: "[deleted]" + (Date.now()) })
+        .eq("id", msgId);
+    }
+  }
+  
+  // Handle edit button
+  if (target.classList.contains("btn-edit-msg")) {
+    var msgId = target.dataset.msgId;
+    var bubble = target.closest(".bubble");
+    var textEl = bubble.querySelector(".bubble-text");
+    if (textEl && !textEl.textContent.startsWith("[image]") && !textEl.textContent.startsWith("[video]") && !textEl.textContent.startsWith("[audio]")) {
+      $("message-input").value = textEl.textContent;
+      editingMessageId = msgId;
+      $("message-input").focus();
+      $("btn-send").textContent = "✏️";
+      showSendButton(true);
+    }
+  }
+});
 
 // =====================================================
 // COMPOSER - Messages, Files, Voice
@@ -585,20 +676,39 @@ $("send-form").addEventListener("submit", async function(e) {
   var input = $("message-input");
   var content = input.value.trim();
   if (!content || !activeConversation) return;
+  
+  if (editingMessageId) {
+    // Edit existing message
+    var { error } = await supabase
+      .from("messages")
+      .update({ content: content, edited: true })
+      .eq("id", editingMessageId);
+    
+    if (error) {
+      alert("Failed to edit: " + error.message);
+      return;
+    }
+    
+    editingMessageId = null;
+    $("btn-send").textContent = "Send";
+  } else {
+    // Send new message
+    var { error } = await supabase.from("messages").insert({
+      conversation_id: activeConversation.id,
+      sender_id: currentUser.id,
+      content: content,
+    });
+    
+    if (error) {
+      alert("Failed to send: " + error.message);
+      input.value = content;
+      return;
+    }
+  }
+  
   input.value = "";
   sendTyping(false);
   showSendButton(false);
-  
-  var { error } = await supabase.from("messages").insert({
-    conversation_id: activeConversation.id,
-    sender_id: currentUser.id,
-    content: content,
-  });
-  
-  if (error) {
-    alert("Failed to send: " + error.message);
-    input.value = content;
-  }
 });
 
 $("message-input").addEventListener("input", function() {
@@ -624,7 +734,7 @@ function showSendButton(show) {
     $("btn-record").style.display = "";
   }
 }
-// Hide send button initially, show record button
+
 $("btn-send").style.display = "none";
 $("btn-record").style.display = "";
 
@@ -661,13 +771,24 @@ function hideTyping() {
 function appendMessage(m) {
   var div = document.createElement("div");
   div.className = "bubble " + (m.sender_id === currentUser.id ? "me" : "them");
+  div.dataset.msgId = m.id;
   
   var content = m.content || "";
+  var isDeleted = content.startsWith("[deleted]");
+  var seenIcon = "";
   
-  if (content.startsWith("[image]")) {
+  if (m.sender_id === currentUser.id) {
+    seenIcon = '<span class="seen-check" style="font-size: 10px; margin-right: 4px; color: ' + (m.seen ? 'var(--primary)' : 'var(--muted)') + ';">' + (m.seen ? '✓✓' : '✓') + '</span>';
+  }
+  
+  if (isDeleted) {
+    div.innerHTML = seenIcon + '<em style="color: var(--muted);">🗑 Message deleted</em>' +
+      '<span class="ts">' + formatTime(m.created_at) + '</span>';
+    div.classList.add("deleted");
+  } else if (content.startsWith("[image]")) {
     var url = content.replace("[image]", "");
     div.innerHTML = '<img src="' + url + '" class="msg-image" loading="lazy" />' +
-      '<span class="ts">' + formatTime(m.created_at) + '</span>';
+      seenIcon + '<span class="ts">' + formatTime(m.created_at) + '</span>';
     
     div.querySelector(".msg-image").addEventListener("click", function() {
       var zoom = document.getElementById("image-zoom-modal");
@@ -679,14 +800,33 @@ function appendMessage(m) {
     var url = content.replace("[video]", "");
     div.innerHTML = '<video controls class="msg-video" preload="metadata">' +
       '<source src="' + url + '" type="video/mp4"></video>' +
-      '<span class="ts">' + formatTime(m.created_at) + '</span>';
+      seenIcon + '<span class="ts">' + formatTime(m.created_at) + '</span>';
   } else if (content.startsWith("[audio]")) {
     var url = content.replace("[audio]", "");
     div.innerHTML = '<audio controls class="msg-audio" preload="metadata">' +
       '<source src="' + url + '" type="audio/webm"></audio>' +
-      '<span class="ts">' + formatTime(m.created_at) + '</span>';
+      seenIcon + '<span class="ts">' + formatTime(m.created_at) + '</span>';
   } else {
-    div.innerHTML = escapeHtml(content) + '<span class="ts">' + formatTime(m.created_at) + '</span>';
+    var editedMark = m.edited ? ' <span style="font-size: 10px; color: var(--muted);">(edited)</span>' : '';
+    div.innerHTML = seenIcon + '<span class="bubble-text">' + escapeHtml(content) + '</span>' + editedMark +
+      '<span class="ts">' + formatTime(m.created_at) + '</span>';
+  }
+  
+  // Add delete and edit buttons for own messages
+  if (m.sender_id === currentUser.id && !isDeleted) {
+    var actionsDiv = document.createElement("div");
+    actionsDiv.className = "msg-actions";
+    actionsDiv.style.cssText = "position: absolute; top: 2px; right: 4px; display: none; gap: 4px;";
+    actionsDiv.innerHTML = '<button class="btn-edit-msg" data-msg-id="' + m.id + '" style="background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11px; padding: 2px;">✏️</button>' +
+      '<button class="btn-delete-msg" data-msg-id="' + m.id + '" style="background: none; border: none; color: var(--danger); cursor: pointer; font-size: 11px; padding: 2px;">🗑</button>';
+    div.style.position = "relative";
+    div.appendChild(actionsDiv);
+    
+    div.addEventListener("mouseenter", function() { actionsDiv.style.display = "flex"; });
+    div.addEventListener("mouseleave", function() { actionsDiv.style.display = "none"; });
+    
+    // Touch support
+    div.addEventListener("touchstart", function() { actionsDiv.style.display = "flex"; });
   }
   
   $("messages").appendChild(div);
@@ -694,11 +834,7 @@ function appendMessage(m) {
 
 function scrollToBottom(force) {
   const el = $("messages");
-  if (force) {
-    el.scrollTop = el.scrollHeight;
-  } else {
-    el.scrollTop = el.scrollHeight;
-  }
+  el.scrollTop = el.scrollHeight;
 }
 
 // =====================================================
@@ -715,7 +851,8 @@ document.addEventListener("DOMContentLoaded", function() {
   deleteBtn.className = "secondary";
   deleteBtn.style.cssText = "margin-top: 8px; font-size: 13px; padding: 8px; display: none;";
   
-  var rowDiv = profileModal.querySelector(".row");
+if (!profileModal) return;
+var rowDiv = profileModal.querySelector(".row");
   if (rowDiv) {
     rowDiv.parentNode.insertBefore(deleteBtn, rowDiv);
   }
