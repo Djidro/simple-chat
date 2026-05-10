@@ -520,7 +520,6 @@ function updateMessageInUI(newMsg) {
       } else {
         bubble.querySelector(".bubble-text").textContent = content;
       }
-      var seenCheck = bubble.querySelector(".seen-check");
      var seenCheck = bubble.querySelector(".seen-check");
 if (seenCheck && newMsg.seen) {
         seenCheck.textContent = "✓✓";
