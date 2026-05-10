@@ -850,11 +850,12 @@ document.addEventListener("DOMContentLoaded", function() {
   deleteBtn.className = "secondary";
   deleteBtn.style.cssText = "margin-top: 8px; font-size: 13px; padding: 8px; display: none;";
   
-if (!profileModal) return;
-var rowDiv = profileModal.querySelector(".row");
+if (profileModal) {
+  var rowDiv = profileModal.querySelector(".row");
   if (rowDiv) {
     rowDiv.parentNode.insertBefore(deleteBtn, rowDiv);
   }
+}
   
   if (profileAvatar && avatarUpload) {
     profileAvatar.addEventListener("click", function(e) {
