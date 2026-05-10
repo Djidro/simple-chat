@@ -450,7 +450,10 @@ async function openChat(conv) {
   $("messages").innerHTML = "";
   hide("list-screen");
   show("chat-screen");
-  
+    // Handle keyboard on mobile
+  setTimeout(function() {
+    scrollToBottom();
+  }, 300);
   showSendButton(false);
   $("message-input").value = "";
   editingMessageId = null;
@@ -830,10 +833,12 @@ function appendMessage(m) {
   
   $("messages").appendChild(div);
 }
-
 function scrollToBottom(force) {
-  const el = $("messages");
-  el.scrollTop = el.scrollHeight;
+  var el = $("messages");
+  if (!el) return;
+  requestAnimationFrame(function() {
+    el.scrollTop = el.scrollHeight;
+  });
 }
 
 // =====================================================
@@ -966,7 +971,16 @@ if (profileModal) {
     });
   }
 });
-
+// KEYBOARD HANDLING FOR MOBILE
+var originalHeight = window.innerHeight;
+window.addEventListener("resize", function() {
+  var newHeight = window.innerHeight;
+  if (newHeight < originalHeight - 100) {
+    // Keyboard open
+    scrollToBottom(true);
+  }
+  originalHeight = newHeight;
+});
 // =====================================================
 // HELPERS
 // =====================================================
