@@ -232,7 +232,108 @@ function subscribeInbox() {
     ) 
     .subscribe();
 }
+// =====================================================
+// USERS LIST
+// =====================================================
+document.getElementById("btn-users").addEventListener("click", function() {
+  loadUsersList();
+  show("users-modal");
+});
 
+document.getElementById("btn-users-close").addEventListener("click", function() {
+  hide("users-modal");
+});
+
+async function loadUsersList() {
+  var list = document.getElementById("users-list");
+  list.innerHTML = "";
+  
+  var result = await supabase
+    .from("users")
+    .select("*")
+    .neq("id", currentUser.id)
+    .order("name", { ascending: true });
+  
+  var users = result.data || [];
+  
+  if (users.length === 0) {
+    list.innerHTML = '<li class="empty-state"><p>No other users yet</p></li>';
+    return;
+  }
+  
+  for (var i = 0; i < users.length; i++) {
+    var u = users[i];
+    var li = document.createElement("li");
+    var initial = (u.name || "?").charAt(0).toUpperCase();
+    var status = formatPresence(u.last_seen);
+    
+    li.innerHTML = '<div class="avatar">' + initial + '</div>' +
+      '<div class="conv-meta">' +
+        '<div class="name">' + escapeHtml(u.name) + '</div>' +
+        '<div class="last">' + status + '</div>' +
+      '</div>';
+    
+    li.style.cursor = "pointer";
+    
+    (function(user) {
+      li.addEventListener("click", async function() {
+        hide("users-modal");
+        await startOrOpenChat(user);
+      });
+    })(u);
+    
+    list.appendChild(li);
+  }
+}
+
+async function startOrOpenChat(peer) {
+  var result = await supabase
+    .from("conversation_participants")
+    .select("conversation_id")
+    .eq("user_id", currentUser.id);
+  
+  var myIds = (result.data || []).map(function(r) { return r.conversation_id; });
+  var conversationId = null;
+  
+  if (myIds.length > 0) {
+    var sharedResult = await supabase
+      .from("conversation_participants")
+      .select("conversation_id")
+      .eq("user_id", peer.id)
+      .in("conversation_id", myIds);
+    
+    if (sharedResult.data && sharedResult.data.length > 0) {
+      conversationId = sharedResult.data[0].conversation_id;
+    }
+  }
+  
+  if (!conversationId) {
+    var newConvResult = await supabase
+      .from("conversations")
+      .insert({})
+      .select()
+      .single();
+    
+    if (newConvResult.error) {
+      alert("Failed to create chat");
+      return;
+    }
+    
+    conversationId = newConvResult.data.id;
+    
+    await supabase.from("conversation_participants").insert([
+      { conversation_id: conversationId, user_id: currentUser.id },
+      { conversation_id: conversationId, user_id: peer.id }
+    ]);
+  }
+  
+  await loadConversations();
+  openChat({ id: conversationId, peer: peer });
+}
+
+// =====================================================
+// NEW CHAT
+// =====================================================
 // =====================================================
 // NEW CHAT
 // =====================================================
