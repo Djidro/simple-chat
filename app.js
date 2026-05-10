@@ -576,6 +576,34 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   }
 });
+// IMAGE ZOOM
+var zoomModal = document.getElementById("image-zoom-modal");
+var zoomImage = document.getElementById("zoom-image");
+var closeZoom = document.getElementById("btn-close-zoom");
+
+if (profileAvatar && zoomModal) {
+  profileAvatar.addEventListener("dblclick", function() {
+    if (profileAvatar.style.backgroundImage && profileAvatar.style.backgroundImage !== "") {
+      var url = profileAvatar.style.backgroundImage.slice(5, -2);
+      zoomImage.src = url;
+      zoomModal.classList.remove("hidden");
+    }
+  });
+}
+
+if (closeZoom) {
+  closeZoom.addEventListener("click", function() {
+    zoomModal.classList.add("hidden");
+  });
+}
+
+if (zoomModal) {
+  zoomModal.addEventListener("click", function(e) {
+    if (e.target === zoomModal) {
+      zoomModal.classList.add("hidden");
+    }
+  });
+}
 // =====================================================
 // HELPERS
 // =====================================================
