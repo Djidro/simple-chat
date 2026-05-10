@@ -49,10 +49,13 @@
       </div>
     </header>
     <div id="messages" class="messages"></div>
-    <form id="send-form" class="composer">
-      <input id="message-input" type="text" placeholder="Type a message" autocomplete="off" />
-      <button type="submit" id="btn-send">Send</button>
-    </form>
+  <form id="send-form" class="composer">
+  <button type="button" id="btn-attach" class="icon" style="flex: none; width: 38px; height: 38px; font-size: 20px;">📎</button>
+  <input type="file" id="file-input" accept="image/*,video/*,audio/*" style="display: none;" />
+  <input id="message-input" type="text" placeholder="Type a message" autocomplete="off" />
+  <button type="button" id="btn-record" class="icon" style="flex: none; width: 38px; height: 38px; font-size: 20px; display: none;">🎤</button>
+  <button type="submit" id="btn-send">Send</button>
+</form>
   </section>
 
   <!-- NEW CHAT MODAL -->
