@@ -2,106 +2,138 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b141a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>SimpleChat</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 </head>
 <body>
   <!-- AUTH SCREEN -->
   <section id="auth-screen" class="screen">
-    <div class="auth-card">
-      <h1>SimpleChat</h1>
-      <p class="muted">Sign in or create an account</p>
-      <input id="auth-name" type="text" placeholder="Name (signup only)" />
-      <input id="auth-email" type="email" placeholder="Email" />
-      <input id="auth-password" type="password" placeholder="Password" />
-      <div class="row">
-        <button id="btn-login">Login</button>
-        <button id="btn-signup" class="secondary">Sign up</button>
+    <div class="auth-wrapper">
+      <div class="auth-card">
+        <div class="auth-logo">
+          <div class="logo-icon">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="currentColor"/></svg>
+          </div>
+          <h1>SimpleChat</h1>
+          <p class="muted">Fast, secure, beautiful messaging</p>
+        </div>
+        <div class="auth-fields">
+          <div class="input-group">
+            <input id="auth-name" type="text" placeholder="Full name" autocomplete="name" />
+          </div>
+          <div class="input-group">
+            <input id="auth-email" type="email" placeholder="Email address" autocomplete="email" />
+          </div>
+          <div class="input-group">
+            <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" />
+          </div>
+          <div class="auth-buttons">
+            <button id="btn-login" class="btn-primary">Sign In</button>
+            <button id="btn-signup" class="btn-secondary">Create Account</button>
+          </div>
+          <p id="auth-error" class="error"></p>
+        </div>
       </div>
-      <p id="auth-error" class="error"></p>
     </div>
   </section>
 
   <!-- CHAT LIST SCREEN -->
   <section id="list-screen" class="screen hidden">
-    <header class="topbar">
-      <div>
-        <h2>Chats</h2>
-        <small id="me-label" class="muted" style="cursor: pointer; text-decoration: underline;">My Profile</small>
+    <header class="topbar glass">
+      <div class="topbar-left">
+        <h2>Messages</h2>
+        <small id="me-label" class="muted clickable">My Profile</small>
       </div>
-      <div class="actions">
-        <button id="btn-users" class="icon">👥</button>
-        <button id="btn-new-chat" class="icon">＋</button>
-        <button id="btn-logout" class="icon">⎋</button>
+      <div class="topbar-actions">
+        <button id="btn-users" class="icon-btn" title="Users">👥</button>
+        <button id="btn-new-chat" class="icon-btn" title="New Chat">＋</button>
+        <button id="btn-logout" class="icon-btn" title="Logout">↩</button>
       </div>
     </header>
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input id="search-input" type="text" placeholder="Search conversations..." />
+    </div>
     <ul id="conversation-list" class="list"></ul>
   </section>
 
   <!-- CHAT ROOM SCREEN -->
   <section id="chat-screen" class="screen hidden">
-    <header class="topbar">
-      <button id="btn-back" class="icon">←</button>
-      <div class="peer">
-        <strong id="peer-name">User</strong>
-        <small id="peer-status" class="muted">offline</small>
+    <header class="topbar glass">
+      <button id="btn-back" class="icon-btn">←</button>
+      <div class="peer-info">
+        <div class="peer-avatar" id="peer-avatar-small">?</div>
+        <div class="peer-details">
+          <strong id="peer-name">User</strong>
+          <small id="peer-status" class="muted">offline</small>
+        </div>
       </div>
     </header>
     <div id="messages" class="messages"></div>
-  <form id="send-form" class="composer">
-  <button type="button" id="btn-attach" class="icon" style="flex: none; width: 38px; height: 38px; font-size: 20px;">📎</button>
-  <input type="file" id="file-input" accept="image/*,video/*,audio/*" style="display: none;" />
-  <input id="message-input" type="text" placeholder="Type a message" autocomplete="off" />
-  <button type="button" id="btn-record" class="icon" style="flex: none; width: 38px; height: 38px; font-size: 20px; display: none;">🎤</button>
-  <button type="submit" id="btn-send">Send</button>
-</form>
+    <form id="send-form" class="composer glass">
+      <button type="button" id="btn-attach" class="icon-btn attach-btn" title="Attach">📎</button>
+      <input type="file" id="file-input" accept="image/*,video/*,audio/*" hidden />
+      <div class="input-wrapper">
+        <input id="message-input" type="text" placeholder="Message" autocomplete="off" />
+      </div>
+      <button type="button" id="btn-record" class="icon-btn record-btn" title="Voice">🎤</button>
+      <button type="submit" id="btn-send" class="send-btn" title="Send">➤</button>
+    </form>
   </section>
 
   <!-- NEW CHAT MODAL -->
-  <div id="new-chat-modal" class="modal hidden">
-    <div class="modal-card">
-      <h3>Start new chat</h3>
-      <input id="new-chat-email" type="email" placeholder="User email" />
-      <div class="row">
-        <button id="btn-start-chat">Start</button>
-        <button id="btn-cancel-chat" class="secondary">Cancel</button>
+  <div id="new-chat-modal" class="modal-overlay hidden">
+    <div class="modal-card glass-strong">
+      <h3>New Conversation</h3>
+      <div class="input-group">
+        <input id="new-chat-email" type="email" placeholder="Enter user email..." />
+      </div>
+      <div class="modal-buttons">
+        <button id="btn-start-chat" class="btn-primary">Start Chat</button>
+        <button id="btn-cancel-chat" class="btn-secondary">Cancel</button>
       </div>
       <p id="new-chat-error" class="error"></p>
     </div>
   </div>
 
   <!-- PROFILE MODAL -->
-  <div id="profile-modal" class="modal hidden">
-    <div class="modal-card profile-card">
-      <div id="profile-avatar" class="avatar profile-avatar" style="cursor: pointer;">?
-        <input type="file" id="avatar-upload" accept="image/*" style="display: none;" />
+  <div id="profile-modal" class="modal-overlay hidden">
+    <div class="modal-card glass-strong profile-card">
+      <div id="profile-avatar" class="avatar-large clickable">
+        <input type="file" id="avatar-upload" accept="image/*" hidden />
       </div>
       <h3 id="profile-name">Name</h3>
       <p id="profile-email" class="muted"></p>
-      <p id="profile-status" class="muted"></p>
-      <div class="row">
-        <button id="btn-profile-message">Message</button>
-        <button id="btn-profile-close" class="secondary">Close</button>
+      <span id="profile-status" class="status-badge"></span>
+      <div class="modal-buttons">
+        <button id="btn-profile-message" class="btn-primary">💬 Message</button>
+        <button id="btn-profile-close" class="btn-secondary">Close</button>
       </div>
     </div>
   </div>
 
   <!-- USERS MODAL -->
-  <div id="users-modal" class="modal hidden">
-    <div class="modal-card">
-      <h3>All Users</h3>
-      <ul id="users-list" class="list" style="max-height: 300px; overflow-y: auto;"></ul>
-      <div class="row" style="margin-top: 12px;">
-        <button id="btn-users-close" class="secondary">Close</button>
+  <div id="users-modal" class="modal-overlay hidden">
+    <div class="modal-card glass-strong">
+      <h3>People</h3>
+      <ul id="users-list" class="list"></ul>
+      <div class="modal-buttons">
+        <button id="btn-users-close" class="btn-secondary">Close</button>
       </div>
     </div>
   </div>
 
   <!-- IMAGE ZOOM MODAL -->
-  <div id="image-zoom-modal" class="modal hidden" style="background: rgba(0,0,0,0.9); z-index: 20;">
-    <span id="btn-close-zoom" style="position: absolute; top: 20px; right: 20px; color: white; font-size: 30px; cursor: pointer;">✕</span>
-    <img id="zoom-image" src="" style="max-width: 90%; max-height: 90%; border-radius: 4px;" />
+  <div id="image-zoom-modal" class="modal-overlay hidden zoom-overlay">
+    <button id="btn-close-zoom" class="zoom-close">✕</button>
+    <img id="zoom-image" src="" alt="Preview" />
   </div>
 
   <script type="module" src="app.js"></script>
