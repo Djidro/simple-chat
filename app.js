@@ -624,19 +624,6 @@ function showSendButton(show) {
     $("btn-record").style.display = "";
   }
 }
-function showSendButton(show) {
-  if (show) {
-    $("btn-send").style.display = "";
-    $("btn-record").style.display = "none";
-  } else {
-    $("btn-send").style.display = "none";
-    $("btn-record").style.display = "";
-  }
-}
-
-// Hide send button initially, show record button
-$("btn-send").style.display = "none";
-$("btn-record").style.display = "";
 // Hide send button initially, show record button
 $("btn-send").style.display = "none";
 $("btn-record").style.display = "";
