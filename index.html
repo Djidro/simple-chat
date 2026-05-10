@@ -25,16 +25,17 @@
 
   <!-- CHAT LIST SCREEN -->
   <section id="list-screen" class="screen hidden">
-    <header class="topbar">
+       <header class="topbar">
       <div>
         <h2>Chats</h2>
         <small id="me-label" class="muted"></small>
       </div>
       <div class="actions">
+        <button id="btn-users" class="icon">👥</button>
         <button id="btn-new-chat" class="icon">＋</button>
         <button id="btn-logout" class="icon">⎋</button>
       </div>
-    </header>
+    </header> 
     <ul id="conversation-list" class="list"></ul>
   </section>
 
@@ -80,7 +81,17 @@
       </div>
     </div>
   </div>
+  <!-- USERS MODAL -->
+  <div id="users-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3>All Users</h3>
+      <ul id="users-list" class="list" style="max-height: 300px; overflow-y: auto;"></ul>
+      <div class="row" style="margin-top: 12px;">
+        <button id="btn-users-close" class="secondary">Close</button>
+      </div>
+    </div>
+  </div>
 
-  <script type="module" src="app.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>
