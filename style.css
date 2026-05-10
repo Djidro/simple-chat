@@ -295,3 +295,34 @@ button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+/* MEDIA MESSAGES */
+.msg-image, .msg-video {
+  max-width: 250px;
+  max-height: 250px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: block;
+}
+.msg-audio {
+  max-width: 250px;
+  outline: none;
+}
+.bubble .media-caption {
+  margin-top: 4px;
+  font-size: 14px;
+}
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--danger);
+  color: white;
+  border-radius: 20px;
+  font-size: 14px;
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
