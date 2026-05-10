@@ -525,6 +525,19 @@ function scrollToBottom() {
 document.addEventListener("DOMContentLoaded", function() {
   var profileAvatar = document.getElementById("profile-avatar");
   var avatarUpload = document.getElementById("avatar-upload");
+  var profileModal = document.getElementById("profile-modal");
+  
+  // Add delete button
+  var deleteBtn = document.createElement("button");
+  deleteBtn.id = "btn-delete-avatar";
+  deleteBtn.textContent = "Delete Picture";
+  deleteBtn.className = "secondary";
+  deleteBtn.style.cssText = "margin-top: 8px; font-size: 13px; padding: 8px; display: none;";
+  
+  var rowDiv = profileModal.querySelector(".row");
+  if (rowDiv) {
+    rowDiv.parentNode.insertBefore(deleteBtn, rowDiv);
+  }
   
   if (profileAvatar && avatarUpload) {
     profileAvatar.addEventListener("click", function(e) {
@@ -571,39 +584,72 @@ document.addEventListener("DOMContentLoaded", function() {
       profileAvatar.style.backgroundImage = "url(" + avatarUrl + ")";
       profileAvatar.style.backgroundSize = "cover";
       profileAvatar.textContent = "";
+      deleteBtn.style.display = "inline-block";
       
       alert("Profile picture updated!");
     });
   }
-});
-// IMAGE ZOOM
-var zoomModal = document.getElementById("image-zoom-modal");
-var zoomImage = document.getElementById("zoom-image");
-var closeZoom = document.getElementById("btn-close-zoom");
-
-if (profileAvatar && zoomModal) {
-  profileAvatar.addEventListener("dblclick", function() {
-    if (profileAvatar.style.backgroundImage && profileAvatar.style.backgroundImage !== "") {
-      var url = profileAvatar.style.backgroundImage.slice(5, -2);
-      zoomImage.src = url;
-      zoomModal.classList.remove("hidden");
+  
+  // Delete avatar
+  deleteBtn.addEventListener("click", async function() {
+    if (!currentUser) return;
+    if (!confirm("Delete your profile picture?")) return;
+    
+    var updateResult = await supabase.from("users")
+      .update({ avatar_url: null })
+      .eq("id", currentUser.id);
+    
+    if (updateResult.error) {
+      alert("Failed to delete: " + updateResult.error.message);
+      return;
+    }
+    
+    profileAvatar.style.backgroundImage = "";
+    profileAvatar.style.backgroundSize = "";
+    profileAvatar.textContent = (currentUser.name || "?").charAt(0).toUpperCase();
+    deleteBtn.style.display = "none";
+    alert("Profile picture deleted!");
+  });
+  
+  // Show/hide delete button
+  var observer = new MutationObserver(function() {
+    if (!profileModal.classList.contains("hidden") && profileAvatar.style.backgroundImage && profileAvatar.style.backgroundImage !== "") {
+      deleteBtn.style.display = "inline-block";
+    } else {
+      deleteBtn.style.display = "none";
     }
   });
-}
+  observer.observe(profileModal, { attributes: true, attributeFilter: ["class"] });
 
-if (closeZoom) {
-  closeZoom.addEventListener("click", function() {
-    zoomModal.classList.add("hidden");
-  });
-}
+  // IMAGE ZOOM
+  var zoomModal = document.getElementById("image-zoom-modal");
+  var zoomImage = document.getElementById("zoom-image");
+  var closeZoom = document.getElementById("btn-close-zoom");
 
-if (zoomModal) {
-  zoomModal.addEventListener("click", function(e) {
-    if (e.target === zoomModal) {
+  if (profileAvatar && zoomModal) {
+    profileAvatar.addEventListener("dblclick", function() {
+      if (profileAvatar.style.backgroundImage && profileAvatar.style.backgroundImage !== "") {
+        var url = profileAvatar.style.backgroundImage.slice(5, -2);
+        zoomImage.src = url;
+        zoomModal.classList.remove("hidden");
+      }
+    });
+  }
+
+  if (closeZoom) {
+    closeZoom.addEventListener("click", function() {
       zoomModal.classList.add("hidden");
-    }
-  });
-}
+    });
+  }
+
+  if (zoomModal) {
+    zoomModal.addEventListener("click", function(e) {
+      if (e.target === zoomModal) {
+        zoomModal.classList.add("hidden");
+      }
+    });
+  }
+});
 // =====================================================
 // HELPERS
 // =====================================================
