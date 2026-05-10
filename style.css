@@ -88,7 +88,11 @@ html, body {
   max-width: 480px;
   margin: 0 auto;
   background: var(--bg-secondary);
-  position: relative;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   overflow: hidden;
   box-shadow: var(--shadow-lg);
 }
@@ -851,4 +855,21 @@ html, body {
 }
 .topbar {
   padding-top: max(10px, env(safe-area-inset-top));
+}
+#chat-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-width: 480px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 480px) {
+  #chat-screen {
+    max-width: 100%;
+  }
 }
