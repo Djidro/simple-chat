@@ -521,7 +521,43 @@ function scrollToBottom() {
   const el = $("messages");
   el.scrollTop = el.scrollHeight;
 }
+// PROFILE PICTURE UPLOAD
+document.getElementById("profile-avatar").addEventListener("click", function() {
+  document.getElementById("avatar-upload").click();
+});
 
+document.getElementById("avatar-upload").addEventListener("change", async function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  
+  var fileExt = file.name.split(".").pop();
+  var fileName = currentUser.id + "." + fileExt;
+  
+  var uploadResult = await supabase.storage
+    .from("avatars")
+    .upload(fileName, file, { upsert: true });
+  
+  if (uploadResult.error) {
+    alert("Upload failed: " + uploadResult.error.message);
+    return;
+  }
+  
+  var urlResult = supabase.storage
+    .from("avatars")
+    .getPublicUrl(fileName);
+  
+  var avatarUrl = urlResult.data.publicUrl;
+  
+  await supabase.from("users")
+    .update({ avatar_url: avatarUrl })
+    .eq("id", currentUser.id);
+  
+  document.getElementById("profile-avatar").style.backgroundImage = "url(" + avatarUrl + ")";
+  document.getElementById("profile-avatar").style.backgroundSize = "cover";
+  document.getElementById("profile-avatar").textContent = "";
+  
+  alert("Profile picture updated!");
+});
 // =====================================================
 // HELPERS
 // =====================================================
