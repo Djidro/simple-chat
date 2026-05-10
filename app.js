@@ -23,6 +23,11 @@ let typingTimeoutLocal = null;
 let typingHideTimeout = null;
 let isTypingSent = false;
 
+// ---------- Media state ----------
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+
 // =====================================================
 // AUTH
 // =====================================================
@@ -116,8 +121,8 @@ async function onLoggedIn() {
   currentUser = profile || { id: user.id, email: user.email, name: user.email };
   $("me-label").textContent = currentUser.name + " — " + currentUser.email;
   $("me-label").addEventListener("click", function() {
-  openProfile(currentUser, null);
-});
+    openProfile(currentUser, null);
+  });
   hide("auth-screen");
   show("list-screen");
   await loadConversations();
@@ -163,12 +168,21 @@ async function loadConversations() {
 
     const li = document.createElement("li");
     const initial = (row.users.name || "?").charAt(0).toUpperCase();
+    
+    var lastText = "No messages yet";
+    if (lastMsg) {
+      if (lastMsg.content.startsWith("[image]")) lastText = "📷 Image";
+      else if (lastMsg.content.startsWith("[video]")) lastText = "🎬 Video";
+      else if (lastMsg.content.startsWith("[audio]")) lastText = "🎵 Voice note";
+      else lastText = lastMsg.content;
+    }
+    
     li.innerHTML = '<div class="avatar" data-profile="1">' + initial + '</div>' +
       '<div class="conv-meta">' +
         '<div class="name"><span data-profile="1">' + escapeHtml(row.users.name) + '</span>' +
           '<span class="time">' + (lastMsg ? formatTime(lastMsg.created_at) : "") + '</span>' +
         '</div>' +
-        '<div class="last">' + (lastMsg ? escapeHtml(lastMsg.content) : "No messages yet") + '</div>' +
+        '<div class="last">' + escapeHtml(lastText) + '</div>' +
       '</div>';
     
     li.addEventListener("click", function(e) {
@@ -221,7 +235,7 @@ function subscribeInbox() {
   if (inboxChannel) supabase.removeChannel(inboxChannel);
   inboxChannel = supabase
     .channel("inbox-" + currentUser.id)
-       .on("postgres_changes",
+    .on("postgres_changes",
       { event: "INSERT", schema: "public", table: "messages" },
       function(payload) {
         loadConversations();
@@ -229,12 +243,17 @@ function subscribeInbox() {
           payload.new.sender_id !== currentUser.id &&
           (!activeConversation || activeConversation.id !== payload.new.conversation_id)
         ) {
-          notify("New message", payload.new.content);
+          var notifBody = payload.new.content;
+          if (notifBody.startsWith("[image]")) notifBody = "📷 Image";
+          else if (notifBody.startsWith("[video]")) notifBody = "🎬 Video";
+          else if (notifBody.startsWith("[audio]")) notifBody = "🎵 Voice note";
+          notify("New message", notifBody);
         }
       }
-    ) 
+    )
     .subscribe();
 }
+
 // =====================================================
 // USERS LIST
 // =====================================================
@@ -401,6 +420,7 @@ $("btn-start-chat").addEventListener("click", async function() {
 $("btn-back").addEventListener("click", function() {
   sendTyping(false);
   hideTyping();
+  stopRecording();
   if (messageChannel) {
     supabase.removeChannel(messageChannel);
     messageChannel = null;
@@ -450,18 +470,131 @@ async function openChat(conv) {
     .subscribe();
 }
 
-$("send-form").addEventListener("submit", async function(e) {
-  e.preventDefault();
-  const input = $("message-input");
-  const content = input.value.trim();
-  if (!content || !activeConversation) return;
-  input.value = "";
-  sendTyping(false);
-  const { error } = await supabase.from("messages").insert({
+// =====================================================
+// COMPOSER - Messages, Files, Voice
+// =====================================================
+$("btn-attach").addEventListener("click", function() {
+  $("file-input").click();
+});
+
+$("file-input").addEventListener("change", async function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  await sendFile(file);
+  this.value = "";
+});
+
+$("btn-record").addEventListener("click", async function() {
+  if (isRecording) {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+});
+
+async function startRecording() {
+  try {
+    var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+    
+    mediaRecorder.ondataavailable = function(e) {
+      audioChunks.push(e.data);
+    };
+    
+    mediaRecorder.onstop = async function() {
+      var audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+      var file = new File([audioBlob], "voice_note.webm", { type: "audio/webm" });
+      await sendFile(file);
+      stream.getTracks().forEach(function(t) { t.stop(); });
+    };
+    
+    mediaRecorder.start();
+    isRecording = true;
+    $("btn-record").textContent = "⏹";
+    $("btn-record").style.color = "var(--danger)";
+    
+    var indicator = document.createElement("div");
+    indicator.id = "recording-indicator";
+    indicator.className = "recording-indicator";
+    indicator.innerHTML = "🔴 Recording...";
+    $("messages").appendChild(indicator);
+    scrollToBottom(true);
+  } catch (e) {
+    alert("Microphone access denied");
+  }
+}
+
+function stopRecording() {
+  if (mediaRecorder && isRecording) {
+    mediaRecorder.stop();
+    isRecording = false;
+    $("btn-record").textContent = "🎤";
+    $("btn-record").style.color = "";
+    
+    var indicator = document.getElementById("recording-indicator");
+    if (indicator) indicator.remove();
+  }
+}
+
+async function sendFile(file) {
+  if (!activeConversation) return;
+  
+  var fileExt = file.name.split(".").pop();
+  var fileName = Date.now() + "_" + Math.random().toString(36).substring(2) + "." + fileExt;
+  var filePath = activeConversation.id + "/" + fileName;
+  
+  var uploadResult = await supabase.storage
+    .from("chat-media")
+    .upload(filePath, file);
+  
+  if (uploadResult.error) {
+    alert("Upload failed: " + uploadResult.error.message);
+    return;
+  }
+  
+  var urlResult = supabase.storage
+    .from("chat-media")
+    .getPublicUrl(filePath);
+  
+  var mediaUrl = urlResult.data.publicUrl;
+  var mediaType = file.type.split("/")[0];
+  
+  var content = "";
+  if (mediaType === "image") {
+    content = "[image]" + mediaUrl;
+  } else if (mediaType === "video") {
+    content = "[video]" + mediaUrl;
+  } else if (mediaType === "audio") {
+    content = "[audio]" + mediaUrl;
+  }
+  
+  var { error } = await supabase.from("messages").insert({
     conversation_id: activeConversation.id,
     sender_id: currentUser.id,
     content: content,
   });
+  
+  if (error) {
+    alert("Failed to send: " + error.message);
+  }
+}
+
+$("send-form").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  var input = $("message-input");
+  var content = input.value.trim();
+  if (!content || !activeConversation) return;
+  input.value = "";
+  sendTyping(false);
+  showSendButton(false);
+  
+  var { error } = await supabase.from("messages").insert({
+    conversation_id: activeConversation.id,
+    sender_id: currentUser.id,
+    content: content,
+  });
+  
   if (error) {
     alert("Failed to send: " + error.message);
     input.value = content;
@@ -470,15 +603,43 @@ $("send-form").addEventListener("submit", async function(e) {
 
 $("message-input").addEventListener("input", function() {
   if (!activeConversation) return;
-  const hasText = $("message-input").value.trim().length > 0;
+  var hasText = $("message-input").value.trim().length > 0;
   if (hasText) {
+    showSendButton(true);
     if (!isTypingSent) sendTyping(true);
     clearTimeout(typingTimeoutLocal);
     typingTimeoutLocal = setTimeout(function() { sendTyping(false); }, 2000);
   } else {
+    showSendButton(false);
     sendTyping(false);
   }
 });
+
+function showSendButton(show) {
+  if (show) {
+    $("btn-send").style.display = "";
+    $("btn-record").style.display = "none";
+  } else {
+    $("btn-send").style.display = "none";
+    $("btn-record").style.display = "";
+  }
+}
+function showSendButton(show) {
+  if (show) {
+    $("btn-send").style.display = "";
+    $("btn-record").style.display = "none";
+  } else {
+    $("btn-send").style.display = "none";
+    $("btn-record").style.display = "";
+  }
+}
+
+// Hide send button initially, show record button
+$("btn-send").style.display = "none";
+$("btn-record").style.display = "";
+// Hide send button initially, show record button
+$("btn-send").style.display = "none";
+$("btn-record").style.display = "";
 
 function sendTyping(typing) {
   if (!messageChannel) return;
@@ -511,23 +672,56 @@ function hideTyping() {
 }
 
 function appendMessage(m) {
-  const div = document.createElement("div");
+  var div = document.createElement("div");
   div.className = "bubble " + (m.sender_id === currentUser.id ? "me" : "them");
-  div.innerHTML = escapeHtml(m.content) + '<span class="ts">' + formatTime(m.created_at) + '</span>';
+  
+  var content = m.content || "";
+  
+  if (content.startsWith("[image]")) {
+    var url = content.replace("[image]", "");
+    div.innerHTML = '<img src="' + url + '" class="msg-image" loading="lazy" />' +
+      '<span class="ts">' + formatTime(m.created_at) + '</span>';
+    
+    div.querySelector(".msg-image").addEventListener("click", function() {
+      var zoom = document.getElementById("image-zoom-modal");
+      var zoomImg = document.getElementById("zoom-image");
+      zoomImg.src = url;
+      zoom.classList.remove("hidden");
+    });
+  } else if (content.startsWith("[video]")) {
+    var url = content.replace("[video]", "");
+    div.innerHTML = '<video controls class="msg-video" preload="metadata">' +
+      '<source src="' + url + '" type="video/mp4"></video>' +
+      '<span class="ts">' + formatTime(m.created_at) + '</span>';
+  } else if (content.startsWith("[audio]")) {
+    var url = content.replace("[audio]", "");
+    div.innerHTML = '<audio controls class="msg-audio" preload="metadata">' +
+      '<source src="' + url + '" type="audio/webm"></audio>' +
+      '<span class="ts">' + formatTime(m.created_at) + '</span>';
+  } else {
+    div.innerHTML = escapeHtml(content) + '<span class="ts">' + formatTime(m.created_at) + '</span>';
+  }
+  
   $("messages").appendChild(div);
 }
 
-function scrollToBottom() {
+function scrollToBottom(force) {
   const el = $("messages");
-  el.scrollTop = el.scrollHeight;
+  if (force) {
+    el.scrollTop = el.scrollHeight;
+  } else {
+    el.scrollTop = el.scrollHeight;
+  }
 }
+
+// =====================================================
 // PROFILE PICTURE UPLOAD
+// =====================================================
 document.addEventListener("DOMContentLoaded", function() {
   var profileAvatar = document.getElementById("profile-avatar");
   var avatarUpload = document.getElementById("avatar-upload");
   var profileModal = document.getElementById("profile-modal");
   
-  // Add delete button
   var deleteBtn = document.createElement("button");
   deleteBtn.id = "btn-delete-avatar";
   deleteBtn.textContent = "Delete Picture";
@@ -590,7 +784,6 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   }
   
-  // Delete avatar
   deleteBtn.addEventListener("click", async function() {
     if (!currentUser) return;
     if (!confirm("Delete your profile picture?")) return;
@@ -611,7 +804,6 @@ document.addEventListener("DOMContentLoaded", function() {
     alert("Profile picture deleted!");
   });
   
-  // Show/hide delete button
   var observer = new MutationObserver(function() {
     if (!profileModal.classList.contains("hidden") && profileAvatar.style.backgroundImage && profileAvatar.style.backgroundImage !== "") {
       deleteBtn.style.display = "inline-block";
@@ -650,12 +842,13 @@ document.addEventListener("DOMContentLoaded", function() {
     });
   }
 });
+
 // =====================================================
 // HELPERS
 // =====================================================
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, function(c) {
-    const map = {
+    var map = {
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
