@@ -522,41 +522,59 @@ function scrollToBottom() {
   el.scrollTop = el.scrollHeight;
 }
 // PROFILE PICTURE UPLOAD
-document.getElementById("profile-avatar").addEventListener("click", function() {
-  document.getElementById("avatar-upload").click();
-});
+document.addEventListener("DOMContentLoaded", function() {
+  var profileAvatar = document.getElementById("profile-avatar");
+  var avatarUpload = document.getElementById("avatar-upload");
+  
+  if (profileAvatar && avatarUpload) {
+    profileAvatar.addEventListener("click", function(e) {
+      e.stopPropagation();
+      avatarUpload.click();
+    });
 
-document.getElementById("avatar-upload").addEventListener("change", async function(e) {
-  var file = e.target.files[0];
-  if (!file) return;
-  
-  var fileExt = file.name.split(".").pop();
-  var fileName = currentUser.id + "." + fileExt;
-  
-  var uploadResult = await supabase.storage
-    .from("avatars")
-    .upload(fileName, file, { upsert: true });
-  
-  if (uploadResult.error) {
-    alert("Upload failed: " + uploadResult.error.message);
-    return;
+    avatarUpload.addEventListener("change", async function(e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      
+      if (!currentUser) {
+        alert("You must be logged in to upload a picture.");
+        return;
+      }
+      
+      var fileExt = file.name.split(".").pop();
+      var fileName = currentUser.id + "." + fileExt;
+      
+      var uploadResult = await supabase.storage
+        .from("avatars")
+        .upload(fileName, file, { upsert: true });
+      
+      if (uploadResult.error) {
+        alert("Upload failed: " + uploadResult.error.message);
+        return;
+      }
+      
+      var urlResult = supabase.storage
+        .from("avatars")
+        .getPublicUrl(fileName);
+      
+      var avatarUrl = urlResult.data.publicUrl;
+      
+      var updateResult = await supabase.from("users")
+        .update({ avatar_url: avatarUrl })
+        .eq("id", currentUser.id);
+      
+      if (updateResult.error) {
+        alert("Failed to save avatar: " + updateResult.error.message);
+        return;
+      }
+      
+      profileAvatar.style.backgroundImage = "url(" + avatarUrl + ")";
+      profileAvatar.style.backgroundSize = "cover";
+      profileAvatar.textContent = "";
+      
+      alert("Profile picture updated!");
+    });
   }
-  
-  var urlResult = supabase.storage
-    .from("avatars")
-    .getPublicUrl(fileName);
-  
-  var avatarUrl = urlResult.data.publicUrl;
-  
-  await supabase.from("users")
-    .update({ avatar_url: avatarUrl })
-    .eq("id", currentUser.id);
-  
-  document.getElementById("profile-avatar").style.backgroundImage = "url(" + avatarUrl + ")";
-  document.getElementById("profile-avatar").style.backgroundSize = "cover";
-  document.getElementById("profile-avatar").textContent = "";
-  
-  alert("Profile picture updated!");
 });
 // =====================================================
 // HELPERS
