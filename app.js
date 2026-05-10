@@ -1,12 +1,10 @@
 // SimpleChat - Vanilla JS + Supabase
-// =====================================================
-// 1) Replace SUPABASE_URL and SUPABASE_ANON_KEY below.
-// 2) Run the SQL from README.md in Supabase to create tables.
-// =====================================================
 
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 const SUPABASE_URL = "https://rfvixnyqlgcjlohissva.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_07G3VDgwos4Dm7HHfoZJlQ_8G6tFxyw";
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true },
 });
@@ -17,15 +15,13 @@ const show = (id) => $(id).classList.remove("hidden");
 const hide = (id) => $(id).classList.add("hidden");
 
 // ---------- App state ----------
-let currentUser = null;            // { id, email, name }
-let activeConversation = null;     // { id, peer: { id, name, last_seen } }
-let messageChannel = null;         // realtime channel for current chat
-let presenceChannel = null;        // global presence channel
-let inboxChannel = null;           // realtime channel for new conversations / messages list
-let typingTimeoutLocal = null;     // debounce for "I'm typing" broadcasts
-let typingHideTimeout = null;      // auto-hide peer typing indicator
-let isTypingSent = false;          // last sent state to avoid spamming the channel
-let inboxDebounce = null;
+let currentUser = null;
+let activeConversation = null;
+let messageChannel = null;
+let inboxChannel = null;
+let typingTimeoutLocal = null;
+let typingHideTimeout = null;
+let isTypingSent = false;
 
 // =====================================================
 // AUTH
@@ -35,10 +31,14 @@ $("btn-signup").addEventListener("click", async () => {
   const email = $("auth-email").value.trim();
   const password = $("auth-password").value;
   $("auth-error").textContent = "";
-  if (!name) return ($("auth-error").textContent = "Name is required for signup.");
+  if (!name) {
+    $("auth-error").textContent = "Name is required for signup.";
+    return;
+  }
   try {
     const { data, error } = await supabase.auth.signUp({
-      email, password,
+      email,
+      password,
       options: { data: { name } },
     });
     if (error) throw error;
@@ -73,16 +73,12 @@ $("btn-logout").addEventListener("click", async () => {
   location.reload();
 });
 
-// Insert/update row in public.users for the auth user.
 async function ensureProfile(authUser, fallbackName) {
-  const name =
-    authUser.user_metadata?.name ||
-    fallbackName ||
-    authUser.email.split("@")[0];
+  const name = authUser.user_metadata ? authUser.user_metadata.name : (fallbackName || authUser.email.split("@")[0]);
   await supabase.from("users").upsert({
     id: authUser.id,
     email: authUser.email,
-    name,
+    name: name,
     last_seen: new Date().toISOString(),
   });
 }
@@ -100,14 +96,13 @@ setInterval(updateLastSeen, 30000);
 // SESSION BOOTSTRAP
 // =====================================================
 (async function init() {
-  // Ask permission for browser notifications (best-effort).
   if ("Notification" in window && Notification.permission === "default") {
-    Notification.requestPermission().catch(() => {});
+    Notification.requestPermission().catch(function() {});
   }
 
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session) {
-    await ensureProfile(session.user);
+  const { data } = await supabase.auth.getSession();
+  if (data && data.session) {
+    await ensureProfile(data.session.user);
     await onLoggedIn();
   } else {
     show("auth-screen");
@@ -115,7 +110,8 @@ setInterval(updateLastSeen, 30000);
 })();
 
 async function onLoggedIn() {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data } = await supabase.auth.getUser();
+  const user = data.user;
   const { data: profile } = await supabase.from("users").select("*").eq("id", user.id).single();
   currentUser = profile || { id: user.id, email: user.email, name: user.email };
   $("me-label").textContent = currentUser.name + " — " + currentUser.email;
@@ -132,26 +128,28 @@ async function loadConversations() {
   const list = $("conversation-list");
   list.innerHTML = "";
 
-  // Conversations the current user participates in.
   const { data: parts } = await supabase
     .from("conversation_participants")
     .select("conversation_id")
     .eq("user_id", currentUser.id);
 
-  const ids = (parts || []).map((p) => p.conversation_id);
-  if (ids.length === 0) {
-    list.innerHTML = `<li class="empty-state"><p>No chats yet.<br>Tap ＋ to start one.</p></li>`;
+  if (!parts || parts.length === 0) {
+    list.innerHTML = '<li class="empty-state"><p>No chats yet.<br>Tap ＋ to start one.</p></li>';
     return;
   }
 
-  // For each conversation, find the OTHER participant + last message.
+  const ids = parts.map(function(p) { return p.conversation_id; });
+
   const { data: convs } = await supabase
     .from("conversation_participants")
     .select("conversation_id, user_id, users:user_id (id, name, email, last_seen)")
     .in("conversation_id", ids)
     .neq("user_id", currentUser.id);
 
-  for (const row of convs || []) {
+  if (!convs) return;
+
+  for (let i = 0; i < convs.length; i++) {
+    const row = convs[i];
     const { data: lastMsg } = await supabase
       .from("messages")
       .select("content, created_at")
@@ -162,15 +160,15 @@ async function loadConversations() {
 
     const li = document.createElement("li");
     const initial = (row.users.name || "?").charAt(0).toUpperCase();
-    li.innerHTML = `
-      <div class="avatar" data-profile="1">${initial}</div>
-      <div class="conv-meta">
-        <div class="name"><span data-profile="1">${escapeHtml(row.users.name)}</span>
-          <span class="time">${lastMsg ? formatTime(lastMsg.created_at) : ""}</span>
-        </div>
-        <div class="last">${lastMsg ? escapeHtml(lastMsg.content) : "No messages yet"}</div>
-      </div>`;
-    li.addEventListener("click", (e) => {
+    li.innerHTML = '<div class="avatar" data-profile="1">' + initial + '</div>' +
+      '<div class="conv-meta">' +
+        '<div class="name"><span data-profile="1">' + escapeHtml(row.users.name) + '</span>' +
+          '<span class="time">' + (lastMsg ? formatTime(lastMsg.created_at) : "") + '</span>' +
+        '</div>' +
+        '<div class="last">' + (lastMsg ? escapeHtml(lastMsg.content) : "No messages yet") + '</div>' +
+      '</div>';
+    
+    li.addEventListener("click", function(e) {
       if (e.target.closest("[data-profile]")) {
         openProfile(row.users, { id: row.conversation_id, peer: row.users });
       } else {
@@ -184,10 +182,9 @@ async function loadConversations() {
 // =====================================================
 // PROFILE MODAL
 // =====================================================
-let profileContext = null; // { conv } to open chat from "Message" button
+let profileContext = null;
 
 async function openProfile(user, ctx) {
-  // Re-fetch to get fresh last_seen.
   const { data: fresh } = await supabase
     .from("users").select("*").eq("id", user.id).maybeSingle();
   const u = fresh || user;
@@ -195,7 +192,7 @@ async function openProfile(user, ctx) {
 
   const avatar = $("profile-avatar");
   if (u.avatar_url) {
-    avatar.style.backgroundImage = `url(${u.avatar_url})`;
+    avatar.style.backgroundImage = "url(" + u.avatar_url + ")";
     avatar.style.backgroundSize = "cover";
     avatar.textContent = "";
   } else {
@@ -209,26 +206,22 @@ async function openProfile(user, ctx) {
   show("profile-modal");
 }
 
-document.getElementById("btn-profile-close").addEventListener("click", () => {
+$("btn-profile-close").addEventListener("click", function() {
   hide("profile-modal");
 });
-document.getElementById("btn-profile-message").addEventListener("click", () => {
+$("btn-profile-message").addEventListener("click", function() {
   hide("profile-modal");
   if (profileContext) openChat(profileContext);
 });
 
-// Realtime: refresh the chat list when any new message arrives in any of my conversations.
 function subscribeInbox() {
   if (inboxChannel) supabase.removeChannel(inboxChannel);
   inboxChannel = supabase
     .channel("inbox-" + currentUser.id)
-    .on("postgres_changes",
+       .on("postgres_changes",
       { event: "INSERT", schema: "public", table: "messages" },
-      (payload) => {
-        clearTimeout(inboxDebounce);
-        inboxDebounce = setTimeout(loadConversations, 300);
-
-        // Browser notification if it's not from me and not the open chat.
+      function(payload) {
+        loadConversations();
         if (
           payload.new.sender_id !== currentUser.id &&
           (!activeConversation || activeConversation.id !== payload.new.conversation_id)
@@ -236,27 +229,21 @@ function subscribeInbox() {
           notify("New message", payload.new.content);
         }
       }
-    )
-    .subscribe((status) => {
-      if (status === 'SUBSCRIBED') {
-        console.log('Connected to chat');
-      } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-        console.warn('Realtime disconnected, retrying...');
-      }
-    });
+    ) 
+    .subscribe();
 }
 
 // =====================================================
 // NEW CHAT
 // =====================================================
-$("btn-new-chat").addEventListener("click", () => {
+$("btn-new-chat").addEventListener("click", function() {
   $("new-chat-email").value = "";
   $("new-chat-error").textContent = "";
   show("new-chat-modal");
 });
-$("btn-cancel-chat").addEventListener("click", () => hide("new-chat-modal"));
+$("btn-cancel-chat").addEventListener("click", function() { hide("new-chat-modal"); });
 
-$("btn-start-chat").addEventListener("click", async () => {
+$("btn-start-chat").addEventListener("click", async function() {
   const email = $("new-chat-email").value.trim().toLowerCase();
   $("new-chat-error").textContent = "";
   if (!email) return;
@@ -268,13 +255,15 @@ $("btn-start-chat").addEventListener("click", async () => {
     const { data: peer, error } = await supabase
       .from("users").select("*").eq("email", email).maybeSingle();
     if (error) throw error;
-    if (!peer) { $("new-chat-error").textContent = "User not found."; return; }
+    if (!peer) {
+      $("new-chat-error").textContent = "User not found.";
+      return;
+    }
 
-    // Find existing 1:1 conversation
     const { data: mine } = await supabase
       .from("conversation_participants")
       .select("conversation_id").eq("user_id", currentUser.id);
-    const myIds = (mine || []).map(r => r.conversation_id);
+    const myIds = (mine || []).map(function(r) { return r.conversation_id; });
     let conversationId = null;
     if (myIds.length) {
       const { data: shared } = await supabase
@@ -285,7 +274,6 @@ $("btn-start-chat").addEventListener("click", async () => {
       if (shared && shared.length) conversationId = shared[0].conversation_id;
     }
 
-    // Otherwise create one
     if (!conversationId) {
       const { data: newConv, error: e1 } = await supabase
         .from("conversations").insert({}).select().single();
@@ -300,7 +288,7 @@ $("btn-start-chat").addEventListener("click", async () => {
 
     hide("new-chat-modal");
     await loadConversations();
-    openChat({ id: conversationId, peer });
+    openChat({ id: conversationId, peer: peer });
   } catch (e) {
     $("new-chat-error").textContent = e.message;
   }
@@ -309,10 +297,13 @@ $("btn-start-chat").addEventListener("click", async () => {
 // =====================================================
 // CHAT ROOM
 // =====================================================
-$("btn-back").addEventListener("click", () => {
+$("btn-back").addEventListener("click", function() {
   sendTyping(false);
   hideTyping();
-  if (messageChannel) { supabase.removeChannel(messageChannel); messageChannel = null; }
+  if (messageChannel) {
+    supabase.removeChannel(messageChannel);
+    messageChannel = null;
+  }
   activeConversation = null;
   hide("chat-screen");
   show("list-screen");
@@ -333,22 +324,24 @@ async function openChat(conv) {
     .eq("conversation_id", conv.id)
     .order("created_at", { ascending: true });
 
-  for (const m of msgs || []) appendMessage(m);
+  if (msgs) {
+    for (let i = 0; i < msgs.length; i++) {
+      appendMessage(msgs[i]);
+    }
+  }
   scrollToBottom();
 
-  // Realtime subscription to this conversation's messages + typing broadcasts.
   if (messageChannel) supabase.removeChannel(messageChannel);
   messageChannel = supabase
     .channel("conv-" + conv.id)
     .on("postgres_changes",
-      { event: "INSERT", schema: "public", table: "messages",
-        filter: `conversation_id=eq.${conv.id}` },
-      (payload) => {
+      { event: "INSERT", schema: "public", table: "messages", filter: "conversation_id=eq." + conv.id },
+      function(payload) {
         appendMessage(payload.new);
         scrollToBottom();
       }
     )
-    .on("broadcast", { event: "typing" }, (payload) => {
+    .on("broadcast", { event: "typing" }, function(payload) {
       if (!payload.payload || payload.payload.user_id === currentUser.id) return;
       if (payload.payload.typing) showTyping();
       else hideTyping();
@@ -356,38 +349,31 @@ async function openChat(conv) {
     .subscribe();
 }
 
-$("send-form").addEventListener("submit", async (e) => {
+$("send-form").addEventListener("submit", async function(e) {
   e.preventDefault();
   const input = $("message-input");
-  const btn = $("btn-send");
   const content = input.value.trim();
   if (!content || !activeConversation) return;
   input.value = "";
   sendTyping(false);
-  btn.disabled = true;
-  try {
-    const { error } = await supabase.from("messages").insert({
-      conversation_id: activeConversation.id,
-      sender_id: currentUser.id,
-      content,
-    });
-    if (error) {
-      alert("Failed to send: " + error.message);
-      input.value = content;
-    }
-  } finally {
-    btn.disabled = false;
-    input.focus();
+  const { error } = await supabase.from("messages").insert({
+    conversation_id: activeConversation.id,
+    sender_id: currentUser.id,
+    content: content,
+  });
+  if (error) {
+    alert("Failed to send: " + error.message);
+    input.value = content;
   }
 });
 
-$("message-input").addEventListener("input", () => {
+$("message-input").addEventListener("input", function() {
   if (!activeConversation) return;
   const hasText = $("message-input").value.trim().length > 0;
   if (hasText) {
     if (!isTypingSent) sendTyping(true);
     clearTimeout(typingTimeoutLocal);
-    typingTimeoutLocal = setTimeout(() => sendTyping(false), 2000);
+    typingTimeoutLocal = setTimeout(function() { sendTyping(false); }, 2000);
   } else {
     sendTyping(false);
   }
@@ -399,7 +385,7 @@ function sendTyping(typing) {
   messageChannel.send({
     type: "broadcast",
     event: "typing",
-    payload: { user_id: currentUser.id, typing },
+    payload: { user_id: currentUser.id, typing: typing },
   });
 }
 
@@ -411,9 +397,8 @@ function showTyping() {
     el.className = "typing";
     el.innerHTML = "<span></span><span></span><span></span>";
     $("messages").appendChild(el);
-    scrollToBottom(true);
+    scrollToBottom();
   }
-  // Safety: hide after 4s if no further events arrive.
   clearTimeout(typingHideTimeout);
   typingHideTimeout = setTimeout(hideTyping, 4000);
 }
@@ -427,26 +412,29 @@ function hideTyping() {
 function appendMessage(m) {
   const div = document.createElement("div");
   div.className = "bubble " + (m.sender_id === currentUser.id ? "me" : "them");
-  div.innerHTML = `${escapeHtml(m.content)}<span class="ts">${formatTime(m.created_at)}</span>`;
+  div.innerHTML = escapeHtml(m.content) + '<span class="ts">' + formatTime(m.created_at) + '</span>';
   $("messages").appendChild(div);
 }
 
-function scrollToBottom(force = false) {
+function scrollToBottom() {
   const el = $("messages");
-  const threshold = 100; // px from bottom
-  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-  if (force || nearBottom) {
-    el.scrollTop = el.scrollHeight;
-  }
+  el.scrollTop = el.scrollHeight;
 }
 
 // =====================================================
 // HELPERS
 // =====================================================
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  }[c]));
+  return String(s).replace(/[&<>"']/g, function(c) {
+    const map = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    };
+    return map[c];
+  });
 }
 
 function formatTime(iso) {
@@ -457,16 +445,16 @@ function formatTime(iso) {
 function formatPresence(lastSeen) {
   if (!lastSeen) return "offline";
   const diff = Date.now() - new Date(lastSeen).getTime();
-  if (diff < 60_000) return "online";
+  if (diff < 60000) return "online";
   const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `last seen ${mins}m ago`;
+  if (mins < 60) return "last seen " + mins + "m ago";
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `last seen ${hrs}h ago`;
+  if (hrs < 24) return "last seen " + hrs + "h ago";
   return "last seen " + new Date(lastSeen).toLocaleDateString();
 }
 
 function notify(title, body) {
   if ("Notification" in window && Notification.permission === "granted") {
-    new Notification(title, { body });
+    new Notification(title, { body: body });
   }
 }
