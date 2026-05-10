@@ -334,9 +334,6 @@ async function startOrOpenChat(peer) {
 // =====================================================
 // NEW CHAT
 // =====================================================
-// =====================================================
-// NEW CHAT
-// =====================================================
 $("btn-new-chat").addEventListener("click", function() {
   $("new-chat-email").value = "";
   $("new-chat-error").textContent = "";
