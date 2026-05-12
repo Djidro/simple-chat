@@ -1,4 +1,4 @@
-// SimpleChat v2 — Complete Working App
+// SimpleChat v2 — Complete Working App with Profile Access Control
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://rfvixnyqlgcjlohissva.supabase.co";
@@ -167,10 +167,16 @@ async function loadConversations() {
     }
     const isOnline = peer.last_seen && (Date.now() - new Date(peer.last_seen).getTime()) < 60000;
     const avatarStyle = peer.avatar_url ? `background-image:url(${peer.avatar_url});background-size:cover;` : "";
-    li.innerHTML = `<div class="avatar" style="${avatarStyle}">${peer.avatar_url ? "" : initial}${isOnline ? '<span class="online-dot"></span>' : ""}</div>
+    li.innerHTML = `<div class="avatar" data-profile="1" style="${avatarStyle}">${peer.avatar_url ? "" : initial}${isOnline ? '<span class="online-dot"></span>' : ""}</div>
       <div class="conv-meta"><div class="name"><span>${esc(peer.name)}</span><span class="time">${lastMsg ? fmtTime(lastMsg.created_at) : ""}</span></div>
       <div class="last">${esc(lastText)}</div></div>`;
-    li.addEventListener("click", () => openChat({ id: row.conversation_id, peer }));
+    li.addEventListener("click", (e) => {
+      if (e.target.closest("[data-profile]")) {
+        openProfile(peer, { id: row.conversation_id, peer });
+      } else {
+        openChat({ id: row.conversation_id, peer });
+      }
+    });
     list.appendChild(li);
   }
 }
@@ -186,38 +192,86 @@ $("search-input").addEventListener("input", function() {
 });
 
 // ============================================
-// PROFILE MODAL
+// PROFILE MODAL — WITH ACCESS CONTROL
 // ============================================
 let profileContext = null;
+
 async function openProfile(user, ctx) {
   const { data: fresh } = await supabase.from("users").select("*").eq("id", user.id).maybeSingle();
   const u = fresh || user;
   profileContext = ctx || null;
+
+  const isOwnProfile = currentUser && u.id === currentUser.id;
+
   const avatar = $("profile-avatar");
   const letter = avatar.querySelector(".avatar-letter-large");
+  const uploadHint = avatar.querySelector(".avatar-upload-hint");
+  const deleteBtn = $("btn-delete-avatar");
+  const messageBtn = $("btn-profile-message");
+  const bioDisplay = $("profile-bio-display");
+
+  // Avatar
   if (u.avatar_url) {
     avatar.style.backgroundImage = `url(${u.avatar_url})`;
     avatar.style.backgroundSize = "cover";
     if (letter) letter.style.display = "none";
-    $("btn-delete-avatar").style.display = "inline-block";
   } else {
     avatar.style.backgroundImage = "";
     if (letter) { letter.style.display = ""; letter.textContent = (u.name || "?").charAt(0).toUpperCase(); }
-    $("btn-delete-avatar").style.display = "none";
   }
+
+  // Show/hide edit controls based on ownership
+  if (isOwnProfile) {
+    avatar.classList.add("clickable");
+    avatar.style.cursor = "pointer";
+    if (uploadHint) uploadHint.style.display = "";
+    if (deleteBtn) deleteBtn.style.display = u.avatar_url ? "inline-block" : "none";
+  } else {
+    avatar.classList.remove("clickable");
+    avatar.style.cursor = "default";
+    if (uploadHint) uploadHint.style.display = "none";
+    if (deleteBtn) deleteBtn.style.display = "none";
+  }
+
+  // Name
   $("profile-name").textContent = u.name || "Unknown";
+
+  // Email
   $("profile-email").textContent = u.email || "";
-  if (u.bio) { $("profile-bio-display").textContent = u.bio; $("profile-bio-display").style.display = ""; }
-  else $("profile-bio-display").style.display = "none";
-  $("profile-status").textContent = fmtPresence(u.last_seen);
-  $("btn-profile-message").style.display = profileContext ? "flex" : "none";
+
+  // Bio
+  if (bioDisplay) {
+    if (u.bio) { bioDisplay.textContent = u.bio; bioDisplay.style.display = ""; }
+    else bioDisplay.style.display = "none";
+  }
+
+  // Status
+  const statusBadge = $("profile-status");
+  statusBadge.textContent = fmtPresence(u.last_seen);
+  const isOnline = u.last_seen && (Date.now() - new Date(u.last_seen).getTime()) < 60000;
+  statusBadge.className = "status-badge" + (isOnline ? "" : " offline");
+
+  // Message button — show only for others with chat context
+  if (messageBtn) {
+    messageBtn.style.display = (!isOwnProfile && profileContext) ? "flex" : "none";
+  }
+
+  // Store ownership flag
+  $("profile-modal").dataset.isOwnProfile = isOwnProfile ? "1" : "0";
+
   show("profile-modal");
 }
+
 $("btn-profile-close").addEventListener("click", () => hide("profile-modal"));
 $("btn-profile-message").addEventListener("click", () => { hide("profile-modal"); if (profileContext) openChat(profileContext); });
 $("profile-modal").addEventListener("click", function(e) { if (e.target === this) hide("profile-modal"); });
 
-$("profile-avatar").addEventListener("click", () => $("avatar-upload").click());
+// Avatar upload — only for own profile
+$("profile-avatar").addEventListener("click", () => {
+  if ($("profile-modal").dataset.isOwnProfile !== "1") return;
+  $("avatar-upload").click();
+});
+
 $("avatar-upload").addEventListener("change", async function(e) {
   const file = e.target.files[0];
   if (!file || !currentUser) return;
@@ -230,19 +284,23 @@ $("avatar-upload").addEventListener("change", async function(e) {
   currentUser.avatar_url = url;
   $("profile-avatar").style.backgroundImage = `url(${url})`;
   $("profile-avatar").style.backgroundSize = "cover";
-  $("profile-avatar").querySelector(".avatar-letter-large").style.display = "none";
+  const letter = $("profile-avatar").querySelector(".avatar-letter-large");
+  if (letter) letter.style.display = "none";
   $("btn-delete-avatar").style.display = "inline-block";
   updateSettingsAvatar();
+  alert("Profile picture updated!");
 });
+
 $("btn-delete-avatar").addEventListener("click", async () => {
-  if (!currentUser || !confirm("Delete picture?")) return;
+  if (!currentUser || !confirm("Delete your profile picture?")) return;
   await supabase.from("users").update({ avatar_url: null }).eq("id", currentUser.id);
   currentUser.avatar_url = null;
   $("profile-avatar").style.backgroundImage = "";
-  const l = $("profile-avatar").querySelector(".avatar-letter-large");
-  if (l) { l.style.display = ""; l.textContent = (currentUser.name || "?").charAt(0).toUpperCase(); }
+  const letter = $("profile-avatar").querySelector(".avatar-letter-large");
+  if (letter) { letter.style.display = ""; letter.textContent = (currentUser.name || "?").charAt(0).toUpperCase(); }
   $("btn-delete-avatar").style.display = "none";
   updateSettingsAvatar();
+  alert("Profile picture deleted!");
 });
 
 // ============================================
@@ -285,9 +343,16 @@ async function loadUsersList() {
     const initial = (u.name || "?").charAt(0).toUpperCase();
     const isOnline = u.last_seen && (Date.now() - new Date(u.last_seen).getTime()) < 60000;
     const avatarStyle = u.avatar_url ? `background-image:url(${u.avatar_url});background-size:cover;` : "";
-    li.innerHTML = `<div class="avatar" style="${avatarStyle}">${u.avatar_url ? "" : initial}${isOnline ? '<span class="online-dot"></span>' : ""}</div>
+    li.innerHTML = `<div class="avatar" data-profile="1" style="${avatarStyle}">${u.avatar_url ? "" : initial}${isOnline ? '<span class="online-dot"></span>' : ""}</div>
       <div class="conv-meta"><div class="name">${esc(u.name)}</div><div class="last">${fmtPresence(u.last_seen)}</div></div>`;
-    li.addEventListener("click", async () => { hide("users-modal"); await startOrOpenChat(u); });
+    li.addEventListener("click", (e) => {
+      if (e.target.closest("[data-profile]")) {
+        openProfile(u, null);
+      } else {
+        hide("users-modal");
+        startOrOpenChat(u);
+      }
+    });
     list.appendChild(li);
   });
 }
@@ -355,7 +420,6 @@ async function openChat(conv) {
     pa.querySelector(".avatar-letter").textContent = (peer.name || "?").charAt(0).toUpperCase();
   }
   $("messages").innerHTML = '<div class="messages-date"><span>Loading...</span></div>';
-  // Load wallpaper
   const s = getSettings();
   if (s.wallpaper) { $("messages").style.backgroundImage = `url(${s.wallpaper})`; $("messages").style.backgroundSize = "cover"; }
   else $("messages").style.backgroundImage = "";
@@ -365,7 +429,7 @@ async function openChat(conv) {
   $("message-input").value = ""; editingMessageId = null; replyToMessage = null;
   $("reply-preview").classList.add("hidden");
   $("btn-send").innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
-  
+
   const { data: msgs } = await supabase.from("messages").select("*").eq("conversation_id", conv.id).order("created_at", { ascending: true });
   $("messages").innerHTML = "";
   let cd = "";
@@ -378,7 +442,7 @@ async function openChat(conv) {
   }
   scrollToBottom();
   await markSeen(conv.id);
-  
+
   if (messageChannel) supabase.removeChannel(messageChannel);
   messageChannel = supabase.channel("conv-" + conv.id)
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: "conversation_id=eq." + conv.id }, (payload) => {
@@ -612,14 +676,12 @@ function appendMessage(m) {
     const edited = m.edited ? ' <span class="edited-mark">(edited)</span>' : "";
     div.innerHTML = `${seen}<span class="bubble-text">${esc(content)}</span>${edited}<span class="ts">${fmtTime(m.created_at)}</span>`;
   }
-  // Reply preview
   if (m.reply_to) {
     const rd = document.createElement("div");
     rd.style.cssText = "font-size:11px;color:var(--text-muted);border-left:3px solid var(--accent);padding:2px 8px;margin-bottom:4px;opacity:0.8;";
     rd.textContent = "↩ Replied";
     div.insertBefore(rd, div.firstChild);
   }
-  // Reactions
   if (m.reactions && Object.keys(m.reactions).length > 0) {
     const rdiv = document.createElement("div"); rdiv.className = "msg-reactions";
     for (const [emoji, users] of Object.entries(m.reactions)) {
@@ -631,7 +693,6 @@ function appendMessage(m) {
     }
     div.appendChild(rdiv);
   }
-  // Actions
   if (!isDel) {
     const adiv = document.createElement("div"); adiv.className = "msg-actions";
     adiv.innerHTML = `<button class="btn-react-msg" data-msg-id="${m.id}">😊</button>
@@ -664,12 +725,12 @@ function saveSettings(u) {
   const c = getSettings(); localStorage.setItem("sc_settings", JSON.stringify({ ...c, ...u }));
 }
 
-// --- Open/Close Settings ---
 $("btn-settings").addEventListener("click", openSettings);
 $("btn-settings-back").addEventListener("click", closeSettings);
 
 function openSettings() {
   if (!currentUser) return;
+  loadOwnProfileForSettings();
   $("settings-name").textContent = currentUser.name || "Unknown";
   $("settings-email").textContent = currentUser.email || "";
   $("settings-bio-input").value = currentUser.bio || "";
@@ -681,6 +742,12 @@ function openSettings() {
 function closeSettings() {
   saveBio();
   hide("settings-screen"); show("list-screen");
+}
+
+async function loadOwnProfileForSettings() {
+  if (!currentUser) return;
+  const { data: profile } = await supabase.from("users").select("*").eq("id", currentUser.id).single();
+  if (profile) currentUser = { ...currentUser, ...profile };
 }
 
 function updateSettingsAvatar() {
@@ -703,24 +770,24 @@ async function saveBio() {
   try { await supabase.from("users").update({ bio }).eq("id", currentUser.id); currentUser.bio = bio; } catch (e) {}
 }
 $("settings-bio-input").addEventListener("blur", saveBio);
+$("settings-bio-input").addEventListener("keypress", (e) => { if (e.key === "Enter") e.target.blur(); });
 
-// Settings avatar upload
 $("settings-avatar").addEventListener("click", () => {
   const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
   inp.onchange = async (ev) => {
     const file = ev.target.files[0]; if (!file || !currentUser) return;
     const ext = file.name.split(".").pop();
-    await supabase.storage.from("avatars").upload(currentUser.id + "." + ext, file, { upsert: true });
-    const url = supabase.storage.from("avatars").getPublicUrl(currentUser.id + "." + ext).data.publicUrl;
+    const fileName = currentUser.id + "." + ext;
+    await supabase.storage.from("avatars").upload(fileName, file, { upsert: true });
+    const url = supabase.storage.from("avatars").getPublicUrl(fileName).data.publicUrl;
     await supabase.from("users").update({ avatar_url: url }).eq("id", currentUser.id);
     currentUser.avatar_url = url;
     updateSettingsAvatar();
-    showToast("Picture updated!");
+    showToast("Profile picture updated!");
   };
   inp.click();
 });
 
-// --- Load settings UI state ---
 function loadSettingsUI() {
   const s = getSettings();
   setToggle("toggle-dark-mode", s.darkMode !== false);
@@ -735,14 +802,12 @@ function loadSettingsUI() {
 }
 function setToggle(id, val) { const el = $(id); if (el) el.checked = val; }
 
-// --- Apply settings on app load ---
 function loadAllSettings() {
   const s = getSettings();
   if (s.fontSize) document.documentElement.style.fontSize = { "Small": "14px", "Medium": "15px", "Large": "16px", "Extra Large": "18px" }[s.fontSize] || "15px";
   applyAccent(s.accentColor || "blue");
 }
 
-// --- Toggle handlers ---
 $("toggle-dark-mode").addEventListener("change", function() { saveSettings({ darkMode: this.checked }); showToast(this.checked ? "Dark mode" : "Light mode"); });
 $("toggle-notifications").addEventListener("change", function() { saveSettings({ notifications: this.checked }); });
 $("toggle-sound").addEventListener("change", function() { saveSettings({ sound: this.checked }); });
@@ -751,7 +816,6 @@ $("toggle-online-status").addEventListener("change", function() { saveSettings({
 $("toggle-typing-indicator").addEventListener("change", function() { saveSettings({ typingIndicator: this.checked }); });
 $("toggle-read-receipts").addEventListener("change", function() { saveSettings({ readReceipts: this.checked }); });
 
-// --- Accent ---
 document.querySelectorAll(".accent-dot").forEach(dot => {
   dot.addEventListener("click", function() {
     const color = this.dataset.color;
@@ -778,7 +842,6 @@ function applyAccent(color) {
   document.documentElement.style.setProperty("--accent-gradient", c.gr);
 }
 
-// --- Font Size ---
 $("btn-font-smaller").addEventListener("click", () => {
   const sizes = ["Extra Large", "Large", "Medium", "Small"], cur = getSettings().fontSize || "Medium";
   const idx = sizes.indexOf(cur); if (idx < sizes.length - 1) {
@@ -796,16 +859,12 @@ $("btn-font-bigger").addEventListener("click", () => {
   }
 });
 
-// --- Wallpaper ---
 $("btn-wallpaper").addEventListener("click", () => {
   const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
   inp.onchange = (e) => {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      saveSettings({ wallpaper: ev.target.result });
-      showToast("Wallpaper saved!");
-    };
+    reader.onload = (ev) => { saveSettings({ wallpaper: ev.target.result }); showToast("Wallpaper saved!"); };
     reader.readAsDataURL(file);
   };
   inp.click();
@@ -893,12 +952,10 @@ function showToast(msg) {
   ie.addEventListener("blur", () => setTimeout(dims, 200));
 })();
 
-// Escape
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { hide("image-zoom-modal"); hide("chat-settings-sidebar"); }
 });
 
-// Placeholders
 $("btn-call").addEventListener("click", () => showToast("Calls coming soon!"));
 $("btn-video-call").addEventListener("click", () => showToast("Video calls coming soon!"));
 
