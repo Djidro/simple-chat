@@ -389,6 +389,29 @@ async function leaveChat() {
 
 async function openChat(conv) {
   activeConversation = conv;
+  // In openChat(), add this after the first line:
+async function openChat(conv) {
+  activeConversation = conv;
+  const peer = conv.peer;
+  
+  // Refresh peer's availability status
+  const { data: freshPeer } = await supabase
+    .from("users")
+    .select("peer_id, last_seen")
+    .eq("id", peer.id)
+    .single();
+  
+  const isOnline = freshPeer?.last_seen && 
+    (Date.now() - new Date(freshPeer.last_seen).getTime()) < 60000;
+  const hasPeer = !!freshPeer?.peer_id;
+  
+  // Update call buttons based on availability
+  $("btn-call").style.opacity = hasPeer ? "1" : "0.4";
+  $("btn-video-call").style.opacity = hasPeer ? "1" : "0.4";
+  $("btn-call").title = hasPeer ? "Voice Call" : "User not available for calls";
+  $("btn-video-call").title = hasPeer ? "Video Call" : "User not available for calls";
+  
+  // ... rest of openChat() continues normally
   const peer = conv.peer;
   $("peer-name").textContent = peer.name;
   $("peer-status").textContent = fmtPresence(peer.last_seen);
@@ -924,57 +947,156 @@ function showToast(msg) {
 // ============================================
 // CALLING SYSTEM
 // ============================================
+
 async function initPeerJS() {
   if (!currentUser) return;
+  
+  // Generate initial peer ID
   peerId = "sc-" + currentUser.id.replace(/-/g, "").substring(0, 20);
-  await supabase.from("users").update({ peer_id: peerId }).eq("id", currentUser.id);
+  
   return new Promise((resolve) => {
     try {
       if (peer && !peer.destroyed) peer.destroy();
-      peer = new Peer(peerId, { host: "0.peerjs.com", port: 443, secure: true, debug: 0 });
-      peer.on("open", (id) => { peerId = id; resolve(id); });
-      peer.on("error", (err) => {
-        if (err.type === "unavailable-id") {
-          peerId = "sc-" + Date.now().toString(36);
-          peer.destroy();
-          peer = new Peer(peerId, { host: "0.peerjs.com", port: 443, secure: true, debug: 0 });
-        }
-      });
-      peer.on("call", (call) => handleIncomingCall(call));
-      peer.on("disconnected", () => setTimeout(() => { if (peer && !peer.destroyed) peer.reconnect(); }, 2000));
-    } catch (e) { resolve(null); }
+      
+      function createPeer(id) {
+        peer = new Peer(id, { 
+          host: "0.peerjs.com", 
+          port: 443, 
+          secure: true, 
+          debug: 0 
+        });
+        
+        peer.on("open", async (openedId) => {
+          peerId = openedId;
+          console.log("✅ PeerJS ready:", peerId);
+          
+          // Save to Supabase immediately
+          await supabase.from("users")
+            .update({ peer_id: peerId })
+            .eq("id", currentUser.id);
+          
+          resolve(openedId);
+        });
+        
+        peer.on("error", async (err) => {
+          console.error("PeerJS error:", err.type);
+          if (err.type === "unavailable-id") {
+            const newId = "sc-" + Date.now().toString(36);
+            peer.destroy();
+            createPeer(newId);
+          } else {
+            // Network error — retry in 5 seconds
+            console.log("Retrying in 5s...");
+            setTimeout(() => {
+              if (peer) peer.destroy();
+              createPeer("sc-" + currentUser.id.replace(/-/g, "").substring(0, 18) + Date.now().toString(36));
+            }, 5000);
+          }
+        });
+        
+        peer.on("call", (call) => handleIncomingCall(call));
+        
+        peer.on("disconnected", () => {
+          console.log("PeerJS disconnected, reconnecting...");
+          setTimeout(() => { 
+            if (peer && !peer.destroyed) peer.reconnect(); 
+          }, 2000);
+        });
+      }
+      
+      createPeer(peerId);
+      
+    } catch (e) { 
+      console.error("PeerJS init failed:", e); 
+      resolve(null); 
+    }
   });
 }
-
-$("btn-call").addEventListener("click", () => startCall("audio"));
-$("btn-video-call").addEventListener("click", () => startCall("video"));
-
 async function startCall(type) {
   if (!activeConversation || isCallActive || isCallIncoming) return;
+  
+  // Check if we have peer connection ourselves
+  if (!peer || !peerId || peer.destroyed) {
+    showToast("Reconnecting to call service...");
+    await initPeerJS();
+    if (!peerId) {
+      showToast("Call service unavailable. Please refresh.");
+      return;
+    }
+  }
+  
   callType = type;
   const peerUser = activeConversation.peer;
-  const { data: pd } = await supabase.from("users").select("peer_id").eq("id", peerUser.id).single();
-  if (!pd?.peer_id) { showToast("User not available"); return; }
+  
+  // Get peer's info
+  const { data: pd } = await supabase
+    .from("users")
+    .select("peer_id, last_seen")
+    .eq("id", peerUser.id)
+    .single();
+  
+  // Check if they have a peer_id
+  if (!pd?.peer_id) {
+    showToast(peerUser.name + " hasn't enabled calls yet. Ask them to log in again.");
+    return;
+  }
+  
+  // Check if they appear offline
+  const isOnline = pd.last_seen && (Date.now() - new Date(pd.last_seen).getTime()) < 120000;
+  if (!isOnline) {
+    showToast(peerUser.name + " may be offline. Call anyway?", "warning");
+    // You could still try the call
+  }
+  
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === "video" });
+    localStream = await navigator.mediaDevices.getUserMedia({ 
+      audio: true, 
+      video: type === "video" 
+    });
+    
     showCallScreen(peerUser, type);
     $("call-status-text").textContent = "Calling...";
     $("call-spinner").classList.remove("hidden");
+    
     const respCh = "cr-" + peerId + "-" + Date.now();
+    
+    // Send call signal
     await supabase.channel("calls-" + pd.peer_id).send({
-      type: "broadcast", event: "incoming_call",
-      payload: { caller_id: currentUser.id, caller_name: currentUser.name, caller_peer_id: peerId, call_type: type, caller_avatar: currentUser.avatar_url || null, response_channel: respCh }
+      type: "broadcast",
+      event: "incoming_call",
+      payload: {
+        caller_id: currentUser.id,
+        caller_name: currentUser.name,
+        caller_peer_id: peerId,
+        call_type: type,
+        caller_avatar: currentUser.avatar_url || null,
+        response_channel: respCh
+      }
     });
+    
     if (outgoingCallChannel) supabase.removeChannel(outgoingCallChannel);
-    outgoingCallChannel = supabase.channel(respCh).on("broadcast", { event: "call_response" }, async (p) => {
-      if (p.payload.accepted) {
-        $("call-status-text").textContent = "Connecting...";
-        const call = peer.call(pd.peer_id, localStream, { metadata: { callType: type } });
-        setupCallHandlers(call, peerUser, type);
-      } else { endCall("Declined"); }
-    }).subscribe();
-    setTimeout(() => { if (isCallActive && !currentCall) endCall("No answer"); }, 35000);
-  } catch (e) { showToast("Camera/mic denied"); endCall(""); }
+    outgoingCallChannel = supabase.channel(respCh)
+      .on("broadcast", { event: "call_response" }, async (p) => {
+        if (p.payload.accepted) {
+          $("call-status-text").textContent = "Connecting...";
+          const call = peer.call(pd.peer_id, localStream, { 
+            metadata: { callType: type } 
+          });
+          setupCallHandlers(call, peerUser, type);
+        } else {
+          endCall("Declined");
+        }
+      }).subscribe();
+    
+    setTimeout(() => { 
+      if (isCallActive && !currentCall) endCall("No answer"); 
+    }, 35000);
+    
+  } catch (e) {
+    console.error(e);
+    showToast("Camera/mic denied");
+    endCall("");
+  }
 }
 
 function handleIncomingCall(call) {
