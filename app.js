@@ -389,9 +389,6 @@ async function leaveChat() {
 
 async function openChat(conv) {
   activeConversation = conv;
-  // In openChat(), add this after the first line:
-async function openChat(conv) {
-  activeConversation = conv;
   const peer = conv.peer;
   
   // Refresh peer's availability status
@@ -411,11 +408,10 @@ async function openChat(conv) {
   $("btn-call").title = hasPeer ? "Voice Call" : "User not available for calls";
   $("btn-video-call").title = hasPeer ? "Video Call" : "User not available for calls";
   
-  // ... rest of openChat() continues normally
-  const peer = conv.peer;
   $("peer-name").textContent = peer.name;
   $("peer-status").textContent = fmtPresence(peer.last_seen);
   $("peer-dot-small").style.display = (peer.last_seen && (Date.now() - new Date(peer.last_seen).getTime()) < 60000) ? "" : "none";
+  
   const pa = $("peer-avatar-small");
   if (peer.avatar_url) {
     pa.style.backgroundImage = `url(${peer.avatar_url})`;
@@ -426,17 +422,33 @@ async function openChat(conv) {
     pa.querySelector(".avatar-letter").style.display = "";
     pa.querySelector(".avatar-letter").textContent = (peer.name || "?").charAt(0).toUpperCase();
   }
+  
   $("messages").innerHTML = '<div class="messages-date"><span>Loading...</span></div>';
   const s = getSettings();
-  if (s.wallpaper) { $("messages").style.backgroundImage = `url(${s.wallpaper})`; $("messages").style.backgroundSize = "cover"; }
-  else $("messages").style.backgroundImage = "";
-  hide("list-screen"); show("chat-screen");
+  if (s.wallpaper) { 
+    $("messages").style.backgroundImage = `url(${s.wallpaper})`; 
+    $("messages").style.backgroundSize = "cover"; 
+  } else {
+    $("messages").style.backgroundImage = "";
+  }
+  
+  hide("list-screen"); 
+  show("chat-screen");
   setTimeout(() => scrollToBottom(), 300);
-  $("btn-send").style.display = "none"; $("btn-record").style.display = "";
-  $("message-input").value = ""; editingMessageId = null; replyToMessage = null;
+  
+  $("btn-send").style.display = "none"; 
+  $("btn-record").style.display = "";
+  $("message-input").value = ""; 
+  editingMessageId = null; 
+  replyToMessage = null;
   $("reply-preview").classList.add("hidden");
   $("btn-send").innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
-  const { data: msgs } = await supabase.from("messages").select("*").eq("conversation_id", conv.id).order("created_at", { ascending: true });
+  
+  const { data: msgs } = await supabase.from("messages")
+    .select("*")
+    .eq("conversation_id", conv.id)
+    .order("created_at", { ascending: true });
+  
   $("messages").innerHTML = "";
   let cd = "";
   if (msgs) {
@@ -446,18 +458,32 @@ async function openChat(conv) {
       appendMessage(m);
     });
   }
+  
   scrollToBottom();
   await markSeen(conv.id);
+  
   if (messageChannel) supabase.removeChannel(messageChannel);
   messageChannel = supabase.channel("conv-" + conv.id)
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: "conversation_id=eq." + conv.id }, (payload) => {
-      appendMessage(payload.new); scrollToBottom();
+    .on("postgres_changes", { 
+      event: "INSERT", 
+      schema: "public", 
+      table: "messages", 
+      filter: "conversation_id=eq." + conv.id 
+    }, (payload) => {
+      appendMessage(payload.new); 
+      scrollToBottom();
       if (payload.new.sender_id !== currentUser.id) markSeen(conv.id);
     })
-    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages", filter: "conversation_id=eq." + conv.id }, (payload) => updateMsgUI(payload.new))
+    .on("postgres_changes", { 
+      event: "UPDATE", 
+      schema: "public", 
+      table: "messages", 
+      filter: "conversation_id=eq." + conv.id 
+    }, (payload) => updateMsgUI(payload.new))
     .on("broadcast", { event: "typing" }, (payload) => {
       if (!payload.payload || payload.payload.user_id === currentUser.id) return;
-      if (payload.payload.typing) showTyping(); else hideTyping();
+      if (payload.payload.typing) showTyping(); 
+      else hideTyping();
     }).subscribe();
 }
 
