@@ -1070,7 +1070,7 @@ async function startCall(type) {
   // Check if they appear offline
   const isOnline = pd.last_seen && (Date.now() - new Date(pd.last_seen).getTime()) < 120000;
   if (!isOnline) {
-    showToast(peerUser.name + " may be offline. Call anyway?", "warning");
+    showToast(peerUser.name + " may be offline. Try anyway.");
     // You could still try the call
   }
   
@@ -1176,19 +1176,38 @@ function rejectCall(notify) {
     supabase.channel(rc).send({ type: "broadcast", event: "call_response", payload: { accepted: false } });
   }
 }
-
 function setupCallHandlers(call, peerUser, type) {
   currentCall = call;
   isCallActive = true;
+  
   call.on("stream", (rs) => {
     $("remote-video").srcObject = rs;
-    if (type === "video") { $("call-avatar-display").classList.add("hidden"); $("remote-video").style.display = ""; }
+    
+    if (type === "video") {
+      $("call-avatar-display").classList.add("hidden");
+      $("remote-video").style.display = "";
+      $("local-video").style.display = "";
+      $("btn-toggle-video").style.display = "";
+      if (localStream) {
+        $("local-video").srcObject = localStream;
+      }
+    } else {
+      // Audio call — keep remote video hidden but stream still flows
+      $("call-avatar-display").classList.remove("hidden");
+      $("remote-video").style.display = "none";
+      $("local-video").style.display = "none";
+      $("btn-toggle-video").style.display = "none";
+    }
+    
     $("call-status-text").textContent = "Connected";
     $("call-spinner").classList.add("hidden");
-    if (type === "video" && localStream) $("local-video").srcObject = localStream;
   });
+  
   call.on("close", () => endCall("Call ended"));
-  call.on("error", () => endCall("Call failed"));
+  call.on("error", (err) => {
+    console.error("Call error:", err);
+    endCall("Call failed");
+  });
 }
 
 function showCallScreen(peerUser, type) {
@@ -1223,27 +1242,55 @@ function showCallScreen(peerUser, type) {
 $("btn-end-call").addEventListener("click", () => endCall("Call ended"));
 
 function endCall(reason) {
-  if (currentCall) { currentCall.close(); currentCall = null; }
-  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-  if (outgoingCallChannel) { supabase.removeChannel(outgoingCallChannel); outgoingCallChannel = null; }
+  // Close the media call
+  if (currentCall) { 
+    try { currentCall.close(); } catch(e) {}
+    currentCall = null; 
+  }
+  
+  // Stop all media tracks
+  if (localStream) { 
+    localStream.getTracks().forEach(t => { 
+      try { t.stop(); } catch(e) {} 
+    }); 
+    localStream = null; 
+  }
+  
+  // Clean up channels
+  if (outgoingCallChannel) { 
+    try { supabase.removeChannel(outgoingCallChannel); } catch(e) {}
+    outgoingCallChannel = null; 
+  }
+  
+  // Reset video elements
+  const rv = $("remote-video");
+  const lv = $("local-video");
+  if (rv) { rv.srcObject = null; rv.style.display = "none"; }
+  if (lv) { lv.srcObject = null; lv.style.display = "none"; }
+  
+  // Reset state
   isCallActive = false;
   isCallIncoming = false;
   isMuted = false;
   isVideoOff = false;
   incomingCallData = null;
   savedCallerInfo = null;
-  $("remote-video").srcObject = null;
-  $("local-video").srcObject = null;
+  
+  // Reset buttons
   $("btn-toggle-mic").classList.remove("muted");
   $("btn-toggle-video").classList.remove("video-off");
+  
+  // Hide call screens
   hide("call-screen");
   hide("incoming-call-modal");
   stopRingtone();
+  
+  // Go back to chat
   if (activeConversation) show("chat-screen");
   else show("list-screen");
+  
   if (reason) showToast(reason);
 }
-
 $("btn-toggle-mic").addEventListener("click", () => {
   if (!localStream) return;
   isMuted = !isMuted;
@@ -1322,7 +1369,32 @@ function cleanupCallSystem() {
   peer = null;
   peerId = null;
 }
+// ============================================
+// CALL BUTTON HANDLERS
+// ============================================
+$("btn-call").addEventListener("click", async () => {
+  if (!activeConversation) { showToast("No active conversation"); return; }
+  if (isCallActive) { showToast("Already in a call"); return; }
+  if (isCallIncoming) { showToast("You have an incoming call"); return; }
+  if (!peer || !peerId || peer.destroyed) {
+    showToast("Reconnecting to call service...");
+    await initPeerJS();
+    if (!peerId) { showToast("Call service unavailable. Try refreshing."); return; }
+  }
+  await startCall("audio");
+});
 
+$("btn-video-call").addEventListener("click", async () => {
+  if (!activeConversation) { showToast("No active conversation"); return; }
+  if (isCallActive) { showToast("Already in a call"); return; }
+  if (isCallIncoming) { showToast("You have an incoming call"); return; }
+  if (!peer || !peerId || peer.destroyed) {
+    showToast("Reconnecting to call service...");
+    await initPeerJS();
+    if (!peerId) { showToast("Call service unavailable. Try refreshing."); return; }
+  }
+  await startCall("video");
+});
 // ============================================
 // KEYBOARD FIX
 // ============================================
