@@ -1,4 +1,4 @@
-// SimpleChat v2 — Complete Working App with Profile Access Control
+// SimpleChat v2 — Complete App with Calling
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://rfvixnyqlgcjlohissva.supabase.co";
@@ -8,12 +8,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true },
 });
 
-// DOM helpers
 const $ = (id) => document.getElementById(id);
 const show = (id) => { const el = $(id); if (el) el.classList.remove("hidden"); };
 const hide = (id) => { const el = $(id); if (el) el.classList.add("hidden"); };
 
-// State
 let currentUser = null;
 let activeConversation = null;
 let messageChannel = null;
@@ -27,6 +25,24 @@ let audioChunks = [];
 let isRecording = false;
 let searchTimeout = null;
 let replyToMessage = null;
+
+// Call state
+let peer = null;
+let peerId = null;
+let currentCall = null;
+let localStream = null;
+let isCallActive = false;
+let isCallIncoming = false;
+let incomingCallData = null;
+let savedCallerInfo = null;
+let isMuted = false;
+let isVideoOff = false;
+let callType = "audio";
+let outgoingCallChannel = null;
+let incomingSignalChannel = null;
+let ringtoneOscillator = null;
+let ringtoneContext = null;
+let ringtoneInterval = null;
 
 // ============================================
 // SPLASH
@@ -78,7 +94,9 @@ $("btn-login").addEventListener("click", async () => {
   }
 });
 
+// SINGLE logout handler — includes call cleanup
 $("btn-logout").addEventListener("click", async () => {
+  cleanupCallSystem();
   await updateLastSeen();
   await supabase.auth.signOut();
   location.reload();
@@ -131,6 +149,8 @@ async function onLoggedIn() {
   await loadConversations();
   subscribeInbox();
   loadAllSettings();
+  await initPeerJS();
+  subscribeCallSignals();
 }
 
 // ============================================
@@ -171,11 +191,8 @@ async function loadConversations() {
       <div class="conv-meta"><div class="name"><span>${esc(peer.name)}</span><span class="time">${lastMsg ? fmtTime(lastMsg.created_at) : ""}</span></div>
       <div class="last">${esc(lastText)}</div></div>`;
     li.addEventListener("click", (e) => {
-      if (e.target.closest("[data-profile]")) {
-        openProfile(peer, { id: row.conversation_id, peer });
-      } else {
-        openChat({ id: row.conversation_id, peer });
-      }
+      if (e.target.closest("[data-profile]")) openProfile(peer, { id: row.conversation_id, peer });
+      else openChat({ id: row.conversation_id, peer });
     });
     list.appendChild(li);
   }
@@ -183,8 +200,7 @@ async function loadConversations() {
 
 $("search-input").addEventListener("input", function() {
   const q = this.value.toLowerCase();
-  const items = document.querySelectorAll("#conversation-list li");
-  items.forEach(li => {
+  document.querySelectorAll("#conversation-list li").forEach(li => {
     const name = (li.querySelector(".name span")?.textContent || "").toLowerCase();
     const last = (li.querySelector(".last")?.textContent || "").toLowerCase();
     li.style.display = (name.includes(q) || last.includes(q)) ? "" : "none";
@@ -192,7 +208,7 @@ $("search-input").addEventListener("input", function() {
 });
 
 // ============================================
-// PROFILE MODAL — WITH ACCESS CONTROL
+// PROFILE MODAL
 // ============================================
 let profileContext = null;
 
@@ -200,17 +216,10 @@ async function openProfile(user, ctx) {
   const { data: fresh } = await supabase.from("users").select("*").eq("id", user.id).maybeSingle();
   const u = fresh || user;
   profileContext = ctx || null;
-
   const isOwnProfile = currentUser && u.id === currentUser.id;
-
   const avatar = $("profile-avatar");
   const letter = avatar.querySelector(".avatar-letter-large");
   const uploadHint = avatar.querySelector(".avatar-upload-hint");
-  const deleteBtn = $("btn-delete-avatar");
-  const messageBtn = $("btn-profile-message");
-  const bioDisplay = $("profile-bio-display");
-
-  // Avatar
   if (u.avatar_url) {
     avatar.style.backgroundImage = `url(${u.avatar_url})`;
     avatar.style.backgroundSize = "cover";
@@ -219,46 +228,26 @@ async function openProfile(user, ctx) {
     avatar.style.backgroundImage = "";
     if (letter) { letter.style.display = ""; letter.textContent = (u.name || "?").charAt(0).toUpperCase(); }
   }
-
-  // Show/hide edit controls based on ownership
   if (isOwnProfile) {
     avatar.classList.add("clickable");
     avatar.style.cursor = "pointer";
     if (uploadHint) uploadHint.style.display = "";
-    if (deleteBtn) deleteBtn.style.display = u.avatar_url ? "inline-block" : "none";
+    $("btn-delete-avatar").style.display = u.avatar_url ? "inline-block" : "none";
   } else {
     avatar.classList.remove("clickable");
     avatar.style.cursor = "default";
     if (uploadHint) uploadHint.style.display = "none";
-    if (deleteBtn) deleteBtn.style.display = "none";
+    $("btn-delete-avatar").style.display = "none";
   }
-
-  // Name
   $("profile-name").textContent = u.name || "Unknown";
-
-  // Email
   $("profile-email").textContent = u.email || "";
-
-  // Bio
-  if (bioDisplay) {
-    if (u.bio) { bioDisplay.textContent = u.bio; bioDisplay.style.display = ""; }
-    else bioDisplay.style.display = "none";
-  }
-
-  // Status
-  const statusBadge = $("profile-status");
-  statusBadge.textContent = fmtPresence(u.last_seen);
-  const isOnline = u.last_seen && (Date.now() - new Date(u.last_seen).getTime()) < 60000;
-  statusBadge.className = "status-badge" + (isOnline ? "" : " offline");
-
-  // Message button — show only for others with chat context
-  if (messageBtn) {
-    messageBtn.style.display = (!isOwnProfile && profileContext) ? "flex" : "none";
-  }
-
-  // Store ownership flag
+  if (u.bio) { $("profile-bio-display").textContent = u.bio; $("profile-bio-display").style.display = ""; }
+  else $("profile-bio-display").style.display = "none";
+  const sb = $("profile-status");
+  sb.textContent = fmtPresence(u.last_seen);
+  sb.className = "status-badge" + ((u.last_seen && (Date.now() - new Date(u.last_seen).getTime()) < 60000) ? "" : " offline");
+  $("btn-profile-message").style.display = (!isOwnProfile && profileContext) ? "flex" : "none";
   $("profile-modal").dataset.isOwnProfile = isOwnProfile ? "1" : "0";
-
   show("profile-modal");
 }
 
@@ -266,7 +255,6 @@ $("btn-profile-close").addEventListener("click", () => hide("profile-modal"));
 $("btn-profile-message").addEventListener("click", () => { hide("profile-modal"); if (profileContext) openChat(profileContext); });
 $("profile-modal").addEventListener("click", function(e) { if (e.target === this) hide("profile-modal"); });
 
-// Avatar upload — only for own profile
 $("profile-avatar").addEventListener("click", () => {
   if ($("profile-modal").dataset.isOwnProfile !== "1") return;
   $("avatar-upload").click();
@@ -284,8 +272,8 @@ $("avatar-upload").addEventListener("change", async function(e) {
   currentUser.avatar_url = url;
   $("profile-avatar").style.backgroundImage = `url(${url})`;
   $("profile-avatar").style.backgroundSize = "cover";
-  const letter = $("profile-avatar").querySelector(".avatar-letter-large");
-  if (letter) letter.style.display = "none";
+  const l = $("profile-avatar").querySelector(".avatar-letter-large");
+  if (l) l.style.display = "none";
   $("btn-delete-avatar").style.display = "inline-block";
   updateSettingsAvatar();
   alert("Profile picture updated!");
@@ -296,8 +284,8 @@ $("btn-delete-avatar").addEventListener("click", async () => {
   await supabase.from("users").update({ avatar_url: null }).eq("id", currentUser.id);
   currentUser.avatar_url = null;
   $("profile-avatar").style.backgroundImage = "";
-  const letter = $("profile-avatar").querySelector(".avatar-letter-large");
-  if (letter) { letter.style.display = ""; letter.textContent = (currentUser.name || "?").charAt(0).toUpperCase(); }
+  const l = $("profile-avatar").querySelector(".avatar-letter-large");
+  if (l) { l.style.display = ""; l.textContent = (currentUser.name || "?").charAt(0).toUpperCase(); }
   $("btn-delete-avatar").style.display = "none";
   updateSettingsAvatar();
   alert("Profile picture deleted!");
@@ -346,12 +334,8 @@ async function loadUsersList() {
     li.innerHTML = `<div class="avatar" data-profile="1" style="${avatarStyle}">${u.avatar_url ? "" : initial}${isOnline ? '<span class="online-dot"></span>' : ""}</div>
       <div class="conv-meta"><div class="name">${esc(u.name)}</div><div class="last">${fmtPresence(u.last_seen)}</div></div>`;
     li.addEventListener("click", (e) => {
-      if (e.target.closest("[data-profile]")) {
-        openProfile(u, null);
-      } else {
-        hide("users-modal");
-        startOrOpenChat(u);
-      }
+      if (e.target.closest("[data-profile]")) openProfile(u, null);
+      else { hide("users-modal"); startOrOpenChat(u); }
     });
     list.appendChild(li);
   });
@@ -429,7 +413,6 @@ async function openChat(conv) {
   $("message-input").value = ""; editingMessageId = null; replyToMessage = null;
   $("reply-preview").classList.add("hidden");
   $("btn-send").innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>';
-
   const { data: msgs } = await supabase.from("messages").select("*").eq("conversation_id", conv.id).order("created_at", { ascending: true });
   $("messages").innerHTML = "";
   let cd = "";
@@ -442,7 +425,6 @@ async function openChat(conv) {
   }
   scrollToBottom();
   await markSeen(conv.id);
-
   if (messageChannel) supabase.removeChannel(messageChannel);
   messageChannel = supabase.channel("conv-" + conv.id)
     .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: "conversation_id=eq." + conv.id }, (payload) => {
@@ -709,14 +691,14 @@ function scrollToBottom() {
 }
 
 // ============================================
-// ZOOM
+// ZOOM & PEER CLICK
 // ============================================
 $("btn-close-zoom").addEventListener("click", () => hide("image-zoom-modal"));
 $("image-zoom-modal").addEventListener("click", function(e) { if (e.target === this) hide("image-zoom-modal"); });
 $("peer-info-click").addEventListener("click", () => { if (activeConversation) openProfile(activeConversation.peer, activeConversation); });
 
 // ============================================
-// SETTINGS — FULLY WORKING
+// SETTINGS
 // ============================================
 function getSettings() {
   try { return JSON.parse(localStorage.getItem("sc_settings") || "{}"); } catch { return {}; }
@@ -808,7 +790,7 @@ function loadAllSettings() {
   applyAccent(s.accentColor || "blue");
 }
 
-$("toggle-dark-mode").addEventListener("change", function() { saveSettings({ darkMode: this.checked }); showToast(this.checked ? "Dark mode" : "Light mode"); });
+$("toggle-dark-mode").addEventListener("change", function() { saveSettings({ darkMode: this.checked }); });
 $("toggle-notifications").addEventListener("change", function() { saveSettings({ notifications: this.checked }); });
 $("toggle-sound").addEventListener("change", function() { saveSettings({ sound: this.checked }); });
 $("toggle-vibration").addEventListener("change", function() { saveSettings({ vibration: this.checked }); if (this.checked && navigator.vibrate) navigator.vibrate(50); });
@@ -892,7 +874,7 @@ function saveChatSetting(u) {
   localStorage.setItem(key, JSON.stringify({ ...c, ...u }));
 }
 
-$("toggle-mute-chat").addEventListener("change", function() { saveChatSetting({ muted: this.checked }); showToast(this.checked ? "Muted" : "Unmuted"); });
+$("toggle-mute-chat").addEventListener("change", function() { saveChatSetting({ muted: this.checked }); });
 $("media-quality-select").addEventListener("change", function() { saveChatSetting({ mediaQuality: this.value }); });
 $("btn-auto-delete").addEventListener("click", () => {
   const opts = ["Off", "24 hours", "7 days", "30 days"], cur = $("auto-delete-label").textContent;
@@ -940,6 +922,260 @@ function showToast(msg) {
 }
 
 // ============================================
+// CALLING SYSTEM
+// ============================================
+async function initPeerJS() {
+  if (!currentUser) return;
+  peerId = "sc-" + currentUser.id.replace(/-/g, "").substring(0, 20);
+  await supabase.from("users").update({ peer_id: peerId }).eq("id", currentUser.id);
+  return new Promise((resolve) => {
+    try {
+      if (peer && !peer.destroyed) peer.destroy();
+      peer = new Peer(peerId, { host: "0.peerjs.com", port: 443, secure: true, debug: 0 });
+      peer.on("open", (id) => { peerId = id; resolve(id); });
+      peer.on("error", (err) => {
+        if (err.type === "unavailable-id") {
+          peerId = "sc-" + Date.now().toString(36);
+          peer.destroy();
+          peer = new Peer(peerId, { host: "0.peerjs.com", port: 443, secure: true, debug: 0 });
+        }
+      });
+      peer.on("call", (call) => handleIncomingCall(call));
+      peer.on("disconnected", () => setTimeout(() => { if (peer && !peer.destroyed) peer.reconnect(); }, 2000));
+    } catch (e) { resolve(null); }
+  });
+}
+
+$("btn-call").addEventListener("click", () => startCall("audio"));
+$("btn-video-call").addEventListener("click", () => startCall("video"));
+
+async function startCall(type) {
+  if (!activeConversation || isCallActive || isCallIncoming) return;
+  callType = type;
+  const peerUser = activeConversation.peer;
+  const { data: pd } = await supabase.from("users").select("peer_id").eq("id", peerUser.id).single();
+  if (!pd?.peer_id) { showToast("User not available"); return; }
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === "video" });
+    showCallScreen(peerUser, type);
+    $("call-status-text").textContent = "Calling...";
+    $("call-spinner").classList.remove("hidden");
+    const respCh = "cr-" + peerId + "-" + Date.now();
+    await supabase.channel("calls-" + pd.peer_id).send({
+      type: "broadcast", event: "incoming_call",
+      payload: { caller_id: currentUser.id, caller_name: currentUser.name, caller_peer_id: peerId, call_type: type, caller_avatar: currentUser.avatar_url || null, response_channel: respCh }
+    });
+    if (outgoingCallChannel) supabase.removeChannel(outgoingCallChannel);
+    outgoingCallChannel = supabase.channel(respCh).on("broadcast", { event: "call_response" }, async (p) => {
+      if (p.payload.accepted) {
+        $("call-status-text").textContent = "Connecting...";
+        const call = peer.call(pd.peer_id, localStream, { metadata: { callType: type } });
+        setupCallHandlers(call, peerUser, type);
+      } else { endCall("Declined"); }
+    }).subscribe();
+    setTimeout(() => { if (isCallActive && !currentCall) endCall("No answer"); }, 35000);
+  } catch (e) { showToast("Camera/mic denied"); endCall(""); }
+}
+
+function handleIncomingCall(call) {
+  if (isCallActive) { call.close(); return; }
+  isCallIncoming = true;
+  incomingCallData = call;
+  supabase.from("users").select("*").eq("peer_id", call.peer).single().then(({ data }) => {
+    if (data) { savedCallerInfo = data; showIncomingModal(data, call.metadata?.callType || "audio"); startRingtone(); }
+  });
+  setTimeout(() => { if (isCallIncoming) rejectCall(true); }, 35000);
+}
+
+function showIncomingModal(caller, type) {
+  $("incoming-caller-name").textContent = caller.name || "Unknown";
+  $("incoming-call-type").textContent = type === "video" ? "📹 Video call..." : "📞 Voice call...";
+  const av = $("incoming-avatar");
+  if (caller.avatar_url) { av.style.backgroundImage = `url(${caller.avatar_url})`; av.style.backgroundSize = "cover"; av.textContent = ""; }
+  else { av.style.backgroundImage = ""; av.textContent = (caller.name || "?").charAt(0).toUpperCase(); }
+  callType = type;
+  show("incoming-call-modal");
+}
+
+$("btn-accept-call").addEventListener("click", acceptCall);
+$("btn-reject-call").addEventListener("click", () => rejectCall(true));
+
+async function acceptCall() {
+  if (!incomingCallData || !savedCallerInfo) return;
+  hide("incoming-call-modal");
+  stopRingtone();
+  isCallIncoming = false;
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callType === "video" });
+    incomingCallData.answer(localStream);
+    setupCallHandlers(incomingCallData, savedCallerInfo, callType);
+    showCallScreen(savedCallerInfo, callType);
+    setTimeout(() => { $("call-status-text").classList.add("hidden"); $("call-spinner").classList.add("hidden"); }, 2000);
+    const rc = savedCallerInfo.response_channel || "cr-" + savedCallerInfo.peer_id;
+    await supabase.channel(rc).send({ type: "broadcast", event: "call_response", payload: { accepted: true } });
+  } catch (e) { showToast("Camera/mic denied"); rejectCall(true); }
+}
+
+function rejectCall(notify) {
+  const ci = savedCallerInfo;
+  if (incomingCallData) { incomingCallData.close(); incomingCallData = null; }
+  hide("incoming-call-modal");
+  stopRingtone();
+  isCallIncoming = false;
+  savedCallerInfo = null;
+  if (notify && ci) {
+    const rc = ci.response_channel || "cr-" + ci.peer_id;
+    supabase.channel(rc).send({ type: "broadcast", event: "call_response", payload: { accepted: false } });
+  }
+}
+
+function setupCallHandlers(call, peerUser, type) {
+  currentCall = call;
+  isCallActive = true;
+  call.on("stream", (rs) => {
+    $("remote-video").srcObject = rs;
+    if (type === "video") { $("call-avatar-display").classList.add("hidden"); $("remote-video").style.display = ""; }
+    $("call-status-text").textContent = "Connected";
+    $("call-spinner").classList.add("hidden");
+    if (type === "video" && localStream) $("local-video").srcObject = localStream;
+  });
+  call.on("close", () => endCall("Call ended"));
+  call.on("error", () => endCall("Call failed"));
+}
+
+function showCallScreen(peerUser, type) {
+  isCallActive = true;
+  callType = type;
+  const av = $("call-avatar");
+  if (peerUser.avatar_url) { av.style.backgroundImage = `url(${peerUser.avatar_url})`; av.style.backgroundSize = "cover"; av.textContent = ""; }
+  else { av.style.backgroundImage = ""; av.textContent = (peerUser.name || "?").charAt(0).toUpperCase(); }
+  $("call-peer-name").textContent = peerUser.name || "User";
+  $("call-status-text").classList.remove("hidden");
+  $("call-spinner").classList.remove("hidden");
+  $("btn-toggle-mic").classList.remove("muted");
+  $("btn-toggle-video").classList.remove("video-off");
+  isMuted = false;
+  isVideoOff = false;
+  if (type === "video") {
+    $("call-avatar-display").classList.add("hidden");
+    $("remote-video").style.display = "";
+    $("local-video").style.display = "";
+    $("btn-toggle-video").style.display = "";
+  } else {
+    $("call-avatar-display").classList.remove("hidden");
+    $("remote-video").style.display = "none";
+    $("local-video").style.display = "none";
+    $("btn-toggle-video").style.display = "none";
+  }
+  hide("chat-screen");
+  hide("list-screen");
+  show("call-screen");
+}
+
+$("btn-end-call").addEventListener("click", () => endCall("Call ended"));
+
+function endCall(reason) {
+  if (currentCall) { currentCall.close(); currentCall = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  if (outgoingCallChannel) { supabase.removeChannel(outgoingCallChannel); outgoingCallChannel = null; }
+  isCallActive = false;
+  isCallIncoming = false;
+  isMuted = false;
+  isVideoOff = false;
+  incomingCallData = null;
+  savedCallerInfo = null;
+  $("remote-video").srcObject = null;
+  $("local-video").srcObject = null;
+  $("btn-toggle-mic").classList.remove("muted");
+  $("btn-toggle-video").classList.remove("video-off");
+  hide("call-screen");
+  hide("incoming-call-modal");
+  stopRingtone();
+  if (activeConversation) show("chat-screen");
+  else show("list-screen");
+  if (reason) showToast(reason);
+}
+
+$("btn-toggle-mic").addEventListener("click", () => {
+  if (!localStream) return;
+  isMuted = !isMuted;
+  localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
+  $("btn-toggle-mic").classList.toggle("muted", isMuted);
+});
+
+$("btn-toggle-video").addEventListener("click", () => {
+  if (!localStream) return;
+  isVideoOff = !isVideoOff;
+  localStream.getVideoTracks().forEach(t => t.enabled = !isVideoOff);
+  $("btn-toggle-video").classList.toggle("video-off", isVideoOff);
+  $("local-video").style.display = isVideoOff ? "none" : "";
+});
+
+function startRingtone() {
+  stopRingtone();
+  try {
+    ringtoneContext = new (window.AudioContext || window.webkitAudioContext)();
+    ringtoneOscillator = ringtoneContext.createOscillator();
+    const gn = ringtoneContext.createGain();
+    ringtoneOscillator.type = "sine";
+    gn.gain.setValueAtTime(0, ringtoneContext.currentTime);
+    ringtoneOscillator.connect(gn);
+    gn.connect(ringtoneContext.destination);
+    ringtoneOscillator.start();
+    let beep = true;
+    ringtoneInterval = setInterval(() => {
+      if (!ringtoneOscillator) { clearInterval(ringtoneInterval); ringtoneInterval = null; return; }
+      ringtoneOscillator.frequency.setValueAtTime(beep ? 880 : 660, ringtoneContext.currentTime);
+      gn.gain.setValueAtTime(0.3, ringtoneContext.currentTime);
+      gn.gain.setValueAtTime(0, ringtoneContext.currentTime + 0.4);
+      beep = !beep;
+    }, 500);
+  } catch (e) {}
+  if (navigator.vibrate) navigator.vibrate([400, 200, 400]);
+}
+
+function stopRingtone() {
+  if (ringtoneInterval) { clearInterval(ringtoneInterval); ringtoneInterval = null; }
+  if (ringtoneOscillator) { try { ringtoneOscillator.stop(); } catch(e) {} ringtoneOscillator = null; }
+  if (ringtoneContext) { ringtoneContext.close(); ringtoneContext = null; }
+  if (navigator.vibrate) navigator.vibrate(0);
+}
+
+async function subscribeCallSignals() {
+  if (!peerId) return;
+  if (incomingSignalChannel) supabase.removeChannel(incomingSignalChannel);
+  incomingSignalChannel = supabase.channel("calls-" + peerId)
+    .on("broadcast", { event: "incoming_call" }, (p) => {
+      if (isCallActive || isCallIncoming) {
+        const rc = p.payload.response_channel || "cr-" + p.payload.caller_peer_id;
+        supabase.channel(rc).send({ type: "broadcast", event: "call_response", payload: { accepted: false } });
+        return;
+      }
+      savedCallerInfo = {
+        name: p.payload.caller_name, avatar_url: p.payload.caller_avatar,
+        peer_id: p.payload.caller_peer_id, id: p.payload.caller_id,
+        response_channel: p.payload.response_channel || null
+      };
+      callType = p.payload.call_type || "audio";
+      showIncomingModal(savedCallerInfo, callType);
+      startRingtone();
+      isCallIncoming = true;
+      setTimeout(() => { if (isCallIncoming) rejectCall(true); }, 35000);
+    })
+    .subscribe();
+}
+
+function cleanupCallSystem() {
+  endCall("");
+  stopRingtone();
+  if (peer && !peer.destroyed) peer.destroy();
+  if (outgoingCallChannel) supabase.removeChannel(outgoingCallChannel);
+  if (incomingSignalChannel) supabase.removeChannel(incomingSignalChannel);
+  peer = null;
+  peerId = null;
+}
+
+// ============================================
 // KEYBOARD FIX
 // ============================================
 (function() {
@@ -955,9 +1191,6 @@ function showToast(msg) {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { hide("image-zoom-modal"); hide("chat-settings-sidebar"); }
 });
-
-$("btn-call").addEventListener("click", () => showToast("Calls coming soon!"));
-$("btn-video-call").addEventListener("click", () => showToast("Video calls coming soon!"));
 
 // ============================================
 // HELPERS
