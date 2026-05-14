@@ -1143,11 +1143,8 @@ function showIncomingModal(caller, type) {
   else { av.style.backgroundImage = ""; av.textContent = (caller.name || "?").charAt(0).toUpperCase(); }
   callType = type;
   show("incoming-call-modal");
+  
 }
-
-$("btn-accept-call").addEventListener("click", acceptCall);
-$("btn-reject-call").addEventListener("click", () => rejectCall(true));
-
 async function acceptCall() {
   if (!incomingCallData || !savedCallerInfo) return;
   hide("incoming-call-modal");
